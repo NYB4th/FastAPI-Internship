@@ -27,6 +27,6 @@ def read_items():
 @app.get("/items/{item_id}")
 def read_item(item_id: int):
     for item in items_db:
-        if item["id"] == item_id:
+        if item.get("id") == item_id:
             return item
     raise HTTPException(status_code=404, detail="item not found")
