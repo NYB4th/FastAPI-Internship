@@ -10,8 +10,8 @@ items_db = [
 
 
 @app.get("/")
-def read_Root():
-    return {"Message": "Welcome to FastApi internship project"}
+def read_root():
+    return {"message": "Welcome to FastApi internship project"}
 
 
 @app.get("/health")
