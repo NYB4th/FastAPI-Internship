@@ -12,6 +12,12 @@ class TaskCreate(BaseModel):
     status: Literal["pending", "in_progress", "completed"] = "pending"
 
 
+class ItemRead(BaseModel):
+    id: int = Field(..., gt=0, description="the item must have an id")
+    name: str = Field(..., min_length=2, description="the item must have a name")
+    price: float = Field(..., gt=0, description="the item must have a price")
+
+
 class TaskRead(TaskCreate):
     id: int
 
@@ -29,10 +35,10 @@ tasks_db: dict[int, TaskRead] = {
 }
 task_id_counter = 2
 
-items_db: dict[int, dict] = {
-    1: {"id": 1, "name": "Wireless Mouse", "price": 25.50},
-    2: {"id": 2, "name": "Mechanical Keyboard", "price": 75.00},
-    3: {"id": 3, "name": "USB-C Monitor", "price": 200.00},
+items_db: dict[int, ItemRead] = {
+    1: ItemRead(id=1, name="Wireless Mouse", price=25.50),
+    2: ItemRead(id=2, name="Mechanical Keyboard", price=75.00),
+    3: ItemRead(id=3, name="USB-C Monitor", price=200.00),
 }
 
 
@@ -46,12 +52,14 @@ def read_health():
     return {"status": "ok"}
 
 
-@app.get("/items")
+@app.get(
+    "/items", response_model=list[ItemRead]
+)  # list is used when sending multiple dictionary objects
 def read_items():
     return list(items_db.values())
 
 
-@app.get("/items/{item_id}")
+@app.get("/items/{item_id}", response_model=ItemRead)
 def read_item(item_id: int):
     item = items_db.get(item_id)
     if not item:
