@@ -29,11 +29,11 @@ tasks_db: dict[int, TaskRead] = {
 }
 task_id_counter = 2
 
-items_db = [
-    {"id": 1, "name": "Wireless Mouse", "price": 25.50},
-    {"id": 2, "name": "Mechanical Keyboard", "price": 75.00},
-    {"id": 3, "name": "USB-C Monitor", "price": 200.00},
-]
+items_db: dict[int, dict] = {
+    1: {"id": 1, "name": "Wireless Mouse", "price": 25.50},
+    2: {"id": 2, "name": "Mechanical Keyboard", "price": 75.00},
+    3: {"id": 3, "name": "USB-C Monitor", "price": 200.00},
+}
 
 
 @app.get("/")
@@ -48,19 +48,19 @@ def read_health():
 
 @app.get("/items")
 def read_items():
-    return {"items": items_db}
+    return list(items_db.values())
 
 
 @app.get("/items/{item_id}")
 def read_item(item_id: int):
-    for item in items_db:
-        if item.get("id") == item_id:
-            return item
-    raise HTTPException(status_code=404, detail="item not found")
+    item = items_db.get(item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="item not found")
+    return item
 
 
 @app.post("/tasks", response_model=TaskRead, status_code=201)
-def createTask(task_in: TaskCreate):
+def create_task(task_in: TaskCreate):
     global task_id_counter
 
     task_data = task_in.model_dump()
