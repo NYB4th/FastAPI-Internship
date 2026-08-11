@@ -1,5 +1,4 @@
 from schmeas.task import TaskCreate, TaskRead
-from fastapi import HTTPException
 
 tasks_db: dict[int, TaskRead] = {
     1: TaskRead(
