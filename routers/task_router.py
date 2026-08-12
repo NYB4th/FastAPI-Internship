@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, status
 from schmeas.task import TaskRead, TaskCreate
 from services import task_service
 
@@ -17,9 +17,4 @@ def get_all():
 
 @router.get("/{task_id}", response_model=TaskRead, status_code=status.HTTP_200_OK)
 def get_by_id(task_id: int):
-    task = task_service.get_task_by_id(task_id)
-    if not task:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="task not found"
-        )
-    return task
+    return task_service.get_task_by_id(task_id)

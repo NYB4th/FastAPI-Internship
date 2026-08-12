@@ -1,5 +1,10 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+from exceptions.task_exceptions import TaskAlreadyExistsError, TaskNotFoundError
 from routers import task_router, item_router
+from schmeas.error import ErrorResponse
 
 app = FastAPI()
 
@@ -15,3 +20,34 @@ def read_root():
 @app.get("/health")
 def read_health():
     return {"status": "ok"}
+
+
+@app.exception_handler(TaskNotFoundError)
+async def task_not_found_handler(request: Request, exc: TaskNotFoundError):
+    error_payload = ErrorResponse(error_code="TASK_NOT_FOUND", message=exc.message)
+    return JSONResponse(
+        status_code=status.HTTP_404_NOT_FOUND,
+        content=error_payload.model_dump(),
+    )
+
+
+@app.exception_handler(TaskAlreadyExistsError)
+async def task_already_exists_handler(request: Request, exc: TaskAlreadyExistsError):
+    error_payload = ErrorResponse(error_code="TASK_DUPLICATE", message=exc.message)
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content=error_payload.model_dump(),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def valtidation_exception_handler(request: Request, exc: RequestValidationError):
+    error_payload = ErrorResponse(
+        error_code="INVALIDATION_ERROR",
+        message="Invalid request body or parameters.",
+        details=exc.errors,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content=error_payload.model_dump(),
+    )
