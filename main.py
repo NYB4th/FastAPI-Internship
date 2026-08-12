@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 
 from exceptions.task_exceptions import TaskAlreadyExistsError, TaskNotFoundError
 from routers import task_router, item_router
@@ -45,9 +46,13 @@ async def valtidation_exception_handler(request: Request, exc: RequestValidation
     error_payload = ErrorResponse(
         error_code="INVALIDATION_ERROR",
         message="Invalid request body or parameters.",
-        details=exc.errors,
+        details=jsonable_encoder(exc.errors),
     )
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-        content=error_payload.model_dump(),
+        content=jsonable_encoder(error_payload),
     )
+
+
+# WHY jsonable_encoder:
+# Converts complex Pydantic error objects into JSON-safe Python primitives to prevent serialization crashes (500 Internal Server Error).
