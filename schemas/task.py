@@ -1,10 +1,10 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Literal
 
 
 class TaskCreate(BaseModel):
     title: str = Field(..., min_length=1, description="Task title can not be empty")
-    description: str
+    description: str | None = None
     priority: int = Field(
         ..., ge=1, le=5, description="Priority must be between 1 and 5"
     )
@@ -13,3 +13,4 @@ class TaskCreate(BaseModel):
 
 class TaskRead(TaskCreate):
     id: int
+    model_config = ConfigDict(from_attributes=True)

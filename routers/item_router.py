@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, status
-from schmeas.item import ItemRead
+from schemas.item import ItemRead
 from services import item_service
 
 router = APIRouter(prefix="/items", tags=["Items"])

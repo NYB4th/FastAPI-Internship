@@ -1,4 +1,4 @@
-from schmeas.item import ItemRead
+from schemas.item import ItemRead
 
 items_db: dict[int, ItemRead] = {
     1: ItemRead(id=1, name="Wireless Mouse", price=25.50),

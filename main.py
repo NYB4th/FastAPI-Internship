@@ -5,9 +5,14 @@ from fastapi.encoders import jsonable_encoder
 
 from exceptions.task_exceptions import TaskAlreadyExistsError, TaskNotFoundError
 from routers import task_router, item_router
-from schmeas.error import ErrorResponse
+from schemas.error import ErrorResponse
+
+from database import Base, engine
+import models.task
 
 app = FastAPI()
+
+Base.metadata.create_all(bind=engine)
 
 app.include_router(task_router.router)
 app.include_router(item_router.router)
@@ -46,10 +51,10 @@ async def valtidation_exception_handler(request: Request, exc: RequestValidation
     error_payload = ErrorResponse(
         error_code="INVALIDATION_ERROR",
         message="Invalid request body or parameters.",
-        details=jsonable_encoder(exc.errors),
+        details=jsonable_encoder(exc.errors()),
     )
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content=jsonable_encoder(error_payload),
     )
 
