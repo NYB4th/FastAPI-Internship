@@ -1,17 +1,17 @@
-# FastAPI Internship Project - Day 5
+# FastAPI Internship Project - Day 6
 
-A modular, enterprise-structured FastAPI application with centralized error handling, PostgreSQL database persistence, and SQLAlchemy ORM integration. The system uses FastAPI dependency injection to manage per-request database sessions and enforces business logic rules over durable database storage.
+A modular, enterprise-structured FastAPI application featuring full database-backed CRUD operations for tasks and database-level query pagination. The system manages PostgreSQL persistent state via SQLAlchemy ORM, enforcing strict domain rules, collision checks, partial field updates, and input validation bounds.
 
 ## Architecture Overview
 
 This project uses a layered architecture to keep HTTP routing, business logic, data persistence, and schemas cleanly separated:
 
-- **Routers (`routers/`)**: Handles incoming HTTP requests, route binding, and status codes. Injects per-request database sessions via `Depends(get_db)`.
-- **Services (`services/`)**: Implements core business logic and queries PostgreSQL using SQLAlchemy ORM models.
+- **Routers (`routers/`)**: Handles incoming HTTP requests, route binding, query parameter validation (`limit`/`offset`), and HTTP status codes. Injects database sessions via `Depends(get_db)`.
+- **Services (`services/`)**: Implements core business logic, case-insensitive duplicate checks, in-place ORM updates, deletion transactions, and database-level pagination queries.
 - **Database (`database.py`)**: Configures the SQLAlchemy database engine, `SessionLocal` factory, declarative base, and the `get_db` generator dependency.
 - **Models (`models/`)**: Defines SQLAlchemy ORM models representing database tables and column constraints in PostgreSQL.
 - **Exceptions (`exceptions/`)**: Contains custom domain exceptions for framework-agnostic error handling.
-- **Schemas (`schemas/`)**: Defines strict Pydantic models for API request validation, response serialization (`from_attributes=True`), and error payload contracts.
+- **Schemas (`schemas/`)**: Defines strict Pydantic models for API request validation (`TaskCreate`, `TaskUpdate`), response serialization (`from_attributes=True`), and error payload contracts.
 - **Global Handlers (`main.py`)**: Registers app startup table creation, routers, and global exception handlers for standardized JSON error responses.
 
 ---
@@ -36,16 +36,16 @@ fastapi-internship/
 ├── routers/
 │   ├── __init__.py
 │   ├── item_router.py  # HTTP endpoints for /items
-│   └── task_router.py  # HTTP endpoints for /tasks (injected with DB session)
+│   └── task_router.py  # HTTP endpoints for /tasks (CRUD & pagination)
 ├── schemas/
 │   ├── __init__.py
 │   ├── error.py        # Standardized ErrorResponse schema
 │   ├── item.py         # Item validation models
-│   └── task.py         # Task Pydantic schemas (with ORM mode enabled)
+│   └── task.py         # Task Pydantic schemas (Create, Update, Read)
 └── services/
     ├── __init__.py
     ├── item_service.py # Business logic & in-memory item store
-    └── task_service.py # Database operations & case-insensitive duplicate checks
+    └── task_service.py # Database CRUD operations, pagination & collision checks
 ```
 
 ---
@@ -85,64 +85,72 @@ All error responses across the API follow a uniform JSON contract defined in `sc
 
 ---
 
-## API Failure Response Examples
+## API Request & Response Examples
 
-### 1. Missing Resource (`404 Not Found`)
+### 1. Update Existing Task (`PUT /tasks/1`)
 
-- **Trigger:** Requesting a non-existent task ID (`GET /tasks/999`).
+- **Request Body (Partial Update):**
 
 ```json
 {
-  "error_code": "TASK_NOT_FOUND",
-  "message": "Task with ID 999 was not found.",
-  "details": null
+  "status": "completed"
 }
 ```
 
-### 2. Duplicate Data (`409 Conflict`)
-
-- **Trigger:** Creating a task with a title that already exists in PostgreSQL (`POST /tasks`).
+- **Response (`200 OK`):**
 
 ```json
 {
-  "error_code": "TASK_DUPLICATE",
-  "message": "Task with title 'Complete Day 5' already exists.",
-  "details": null
+  "title": "Complete Day 6 Assignment",
+  "description": "Implement CRUD and pagination",
+  "priority": 1,
+  "status": "completed",
+  "id": 1
 }
 ```
 
-### 3. Invalid Request Payload (`422 Unprocessable Entity`)
+### 2. Delete Task (`DELETE /tasks/1`)
 
-- **Trigger:** Sending invalid data types or missing required fields.
+- **Response (`204 No Content`):** Empty body.
+
+### 3. Paginated Task List (`GET /tasks?limit=2&offset=0`)
+
+- **Response (`200 OK`):**
 
 ```json
-{
-  "error_code": "INVALIDATION_ERROR",
-  "message": "Invalid request body or parameters.",
-  "details": [
-    {
-      "type": "missing",
-      "loc": ["body", "title"],
-      "msg": "Field required",
-      "input": {}
-    }
-  ]
-}
+[
+  {
+    "title": "Task One",
+    "description": null,
+    "priority": 1,
+    "status": "pending",
+    "id": 1
+  },
+  {
+    "title": "Task Two",
+    "description": null,
+    "priority": 2,
+    "status": "pending",
+    "id": 2
+  }
+]
 ```
 
 ---
 
 ## API Endpoints
 
-| Method | Endpoint           | Layer Handling   | Data Store | Success       | Error Codes  | Description                       |
-| :----- | :----------------- | :--------------- | :--------- | :------------ | :----------- | :-------------------------------- |
-| `GET`  | `/`                | `main.py`        | N/A        | `200 OK`      | —            | Root welcome payload              |
-| `GET`  | `/health`          | `main.py`        | N/A        | `200 OK`      | —            | System health check               |
-| `GET`  | `/items`           | `item_router.py` | Memory     | `200 OK`      | —            | List all items                    |
-| `GET`  | `/items/{item_id}` | `item_router.py` | Memory     | `200 OK`      | `404`        | Retrieve item by ID               |
-| `POST` | `/tasks`           | `task_router.py` | PostgreSQL | `201 Created` | `409`, `422` | Create task with database persist |
-| `GET`  | `/tasks`           | `task_router.py` | PostgreSQL | `200 OK`      | —            | List all tasks from database      |
-| `GET`  | `/tasks/{task_id}` | `task_router.py` | PostgreSQL | `200 OK`      | `404`        | Retrieve task from database by ID |
+| Method   | Endpoint           | Layer Handling   | Data Store | Success          | Error Codes         | Description                            |
+| :------- | :----------------- | :--------------- | :--------- | :--------------- | :------------------ | :------------------------------------- |
+| `GET`    | `/`                | `main.py`        | N/A        | `200 OK`         | —                   | Root welcome payload                   |
+| `GET`    | `/health`          | `main.py`        | N/A        | `200 OK`         | —                   | System health check                    |
+| `GET`    | `/items`           | `item_router.py` | Memory     | `200 OK`         | —                   | List all items                         |
+| `GET`    | `/items/{item_id}` | `item_router.py` | Memory     | `200 OK`         | `404`               | Retrieve item by ID                    |
+| `POST`   | `/tasks`           | `task_router.py` | PostgreSQL | `201 Created`    | `409`, `422`        | Create task with duplicate title check |
+| `GET`    | `/tasks`           | `task_router.py` | PostgreSQL | `200 OK`         | `422`               | List tasks with `limit` & `offset`     |
+| `GET`    | `/tasks/{task_id}` | `task_router.py` | PostgreSQL | `200 OK`         | `404`               | Retrieve task by ID                    |
+| `PUT`    | `/tasks/{task_id}` | `task_router.py` | PostgreSQL | `200 OK`         | `404`, `409`, `422` | Update existing task (partial/full)    |
+| `DELETE` | `/tasks/{task_id}` | `task_router.py` | PostgreSQL | `204 No Content` | `404`               | Delete task from database              |
 
 ---
 
@@ -180,35 +188,30 @@ All error responses across the API follow a uniform JSON contract defined in `sc
 
 ---
 
-## Verification Workflow (Proof of Persistence)
+## Verification Workflow
 
 1. Open `http://127.0.0.1:8000/docs`.
-2. **Create a Persistent Task:**
-   - Execute `POST /tasks` with body:
-     ```json
-     {
-       "title": "Verify PostgreSQL Persistence",
-       "description": "Checking durability across server restarts",
-       "priority": 1,
-       "status": "pending"
-     }
-     ```
-   - Confirm response code `201 Created` and note the returned `id` (e.g., `id: 1`).
-3. **Restart API Server:**
-   - Press `Ctrl + C` in the terminal to terminate Uvicorn.
-   - Restart the server: `uvicorn main:app --reload`.
-4. **Verify Data Retention:**
-   - Execute `GET /tasks/1`.
-   - Confirm status code `200 OK` and verify the exact record created prior to restart is returned from PostgreSQL.
+2. **Verify Create & Database Seed:**
+   - Execute `POST /tasks` to create multiple tasks.
+3. **Verify Update Operations (`PUT /tasks/{id}`):**
+   - Execute `PUT /tasks/1` with payload `{"status": "completed"}`.
+   - Confirm status code `200 OK` and verify only `status` changed while other fields remain preserved.
+   - Execute `PUT /tasks/1` with an existing title of another task. Confirm `409 Conflict`.
+4. **Verify Database Pagination (`GET /tasks`):**
+   - Execute `GET /tasks?limit=2&offset=0` $\rightarrow$ Returns first 2 tasks.
+   - Execute `GET /tasks?limit=2&offset=2` $\rightarrow$ Returns next slice of tasks.
+   - Execute `GET /tasks?limit=-1` $\rightarrow$ Confirm `422 Unprocessable Entity`.
+5. **Verify Delete Operations (`DELETE /tasks/{id}`):**
+   - Execute `DELETE /tasks/1` $\rightarrow$ Confirm `204 No Content`.
+   - Execute `GET /tasks/1` $\rightarrow$ Confirm `404 Not Found`.
 
 ---
 
 ## Definition of Done
 
-- [x] Environment variable configuration established with `.env` and `.env.example`.
-- [x] Database connection pool and dependency session generator configured in `database.py`.
-- [x] SQLAlchemy ORM `Task` model created in `models/task.py`.
-- [x] Automatic database table generation enabled in `main.py`.
-- [x] Task routers and service refactored to execute transactions via injected `Session` dependencies.
-- [x] Pydantic `TaskRead` schema updated with `from_attributes=True` for ORM compatibility.
-- [x] Data persistence verified across application process restarts.
+- [x] Defined `TaskUpdate` schema with optional fields in `schemas/task.py`.
+- [x] Implemented database-backed `update_task` service using `exclude_unset=True` for partial updates and title collision checks.
+- [x] Implemented database-backed `delete_task` service with `204 No Content` HTTP response.
+- [x] Added validated `limit` and `offset` query parameters (`Query`) to `GET /tasks` executed directly via SQL `.offset().limit()`.
+- [x] Enforced uniform `404 Not Found` error responses for missing record updates and deletions.
+- [x] Verified full CRUD and paginated list behavior against PostgreSQL.
