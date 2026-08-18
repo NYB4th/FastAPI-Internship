@@ -8,7 +8,6 @@ from routers import task_router, item_router
 from schemas.error import ErrorResponse
 
 from database import Base, engine
-import models.task
 
 app = FastAPI()
 
