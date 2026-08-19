@@ -1,18 +1,19 @@
-# FastAPI Internship Project - Day 6
+# FastAPI Internship Project - Day 7
 
-A modular, enterprise-structured FastAPI application featuring full database-backed CRUD operations for tasks and database-level query pagination. The system manages PostgreSQL persistent state via SQLAlchemy ORM, enforcing strict domain rules, collision checks, partial field updates, and input validation bounds.
+A modular, enterprise-structured FastAPI application featuring full database-backed CRUD operations for tasks, database-level query pagination, and schema version control using Alembic database migrations. The system manages PostgreSQL persistent state via SQLAlchemy ORM, enforcing strict domain rules, collision checks, partial field updates, and input validation bounds.
 
 ## Architecture Overview
 
-This project uses a layered architecture to keep HTTP routing, business logic, data persistence, and schemas cleanly separated:
+This project uses a layered architecture to keep HTTP routing, business logic, data persistence, and database migrations cleanly separated:
 
 - **Routers (`routers/`)**: Handles incoming HTTP requests, route binding, query parameter validation (`limit`/`offset`), and HTTP status codes. Injects database sessions via `Depends(get_db)`.
 - **Services (`services/`)**: Implements core business logic, case-insensitive duplicate checks, in-place ORM updates, deletion transactions, and database-level pagination queries.
 - **Database (`database.py`)**: Configures the SQLAlchemy database engine, `SessionLocal` factory, declarative base, and the `get_db` generator dependency.
 - **Models (`models/`)**: Defines SQLAlchemy ORM models representing database tables and column constraints in PostgreSQL.
+- **Migrations (`alembic/`)**: Manages version-controlled database schema changes (DDL) using Alembic, dynamically bound to `Base.metadata` and environment configuration.
 - **Exceptions (`exceptions/`)**: Contains custom domain exceptions for framework-agnostic error handling.
 - **Schemas (`schemas/`)**: Defines strict Pydantic models for API request validation (`TaskCreate`, `TaskUpdate`), response serialization (`from_attributes=True`), and error payload contracts.
-- **Global Handlers (`main.py`)**: Registers app startup table creation, routers, and global exception handlers for standardized JSON error responses.
+- **Global Handlers (`main.py`)**: Registers app startup, routers, and global exception handlers for standardized JSON error responses (runtime table auto-creation removed in favor of Alembic migrations).
 
 ---
 
@@ -23,16 +24,23 @@ fastapi-internship/
 ├── .env                # Environment configuration (git-ignored)
 ├── .env.example        # Environment configuration template
 ├── .gitignore          # Ignores venv/, .env, and build artifacts
+├── alembic.ini         # Alembic CLI configuration file
+├── alembic/            # Database migration environment
+│   ├── env.py          # Migration execution script with dynamic .env loading
+│   ├── README          # Alembic directory description
+│   ├── script.py.mako  # Migration script template
+│   └── versions/       # Version-controlled migration revision files
+│       └── d6692e76d30b_add_is_completed_to_tasks.py
 ├── database.py         # SQLAlchemy engine, session factory, and get_db dependency
 ├── exceptions/
 │   ├── __init__.py
 │   └── task_exceptions.py # Custom domain exceptions
-├── main.py             # App initialization, table auto-creation, routers & error handlers
+├── main.py             # App initialization, routers & global error handlers
 ├── models/
 │   ├── __init__.py
 │   └── task.py         # SQLAlchemy ORM task model (PostgreSQL tasks table)
 ├── README.md           # Architecture, database setup, and API specifications
-├── requirements.txt    # Application dependencies
+├── requirements.txt    # Application dependencies (includes Alembic)
 ├── routers/
 │   ├── __init__.py
 │   ├── item_router.py  # HTTP endpoints for /items
@@ -50,20 +58,43 @@ fastapi-internship/
 
 ---
 
-## Database Configuration
+## Database Configuration & Migrations
 
-Database configuration is loaded at runtime via environment variables using `python-dotenv`.
+Database connection settings are loaded dynamically at runtime via environment variables using `python-dotenv`.
 
-1. Copy `.env.example` to `.env`:
+1. **Environment Setup:**
+   Copy `.env.example` to `.env`:
+
    ```cmd
    copy .env.example .env
    ```
-2. Set your PostgreSQL connection string inside `.env`:
+
+   Set your PostgreSQL connection string inside `.env`:
+
    ```env
    DATABASE_URL=postgresql://postgres:your_password@localhost:5432/fastapi_db
    ```
 
-> **Security Note:** `.env` contains local credentials and is excluded from source control via `.gitignore`.
+2. **Alembic Migration Commands:**
+   Alembic handles all database schema changes across environments.
+   - **Apply all pending migrations:**
+     ```cmd
+     alembic upgrade head
+     ```
+   - **Check current database revision:**
+     ```cmd
+     alembic current
+     ```
+   - **Generate a new migration script (autogenerate):**
+     ```cmd
+     alembic revision --autogenerate -m "description_of_changes"
+     ```
+   - **Roll back the last applied migration:**
+     ```cmd
+     alembic downgrade -1
+     ```
+
+> **Security Note:** `.env` contains local credentials and is excluded from source control via `.gitignore`. Credentials are dynamically passed into Alembic via `alembic/env.py`.
 
 ---
 
@@ -101,10 +132,11 @@ All error responses across the API follow a uniform JSON contract defined in `sc
 
 ```json
 {
-  "title": "Complete Day 6 Assignment",
-  "description": "Implement CRUD and pagination",
+  "title": "Complete Day 7 Assignment",
+  "description": "Configure Alembic and perform database migrations",
   "priority": 1,
   "status": "completed",
+  "is_completed": false,
   "id": 1
 }
 ```
@@ -124,6 +156,7 @@ All error responses across the API follow a uniform JSON contract defined in `sc
     "description": null,
     "priority": 1,
     "status": "pending",
+    "is_completed": false,
     "id": 1
   },
   {
@@ -131,6 +164,7 @@ All error responses across the API follow a uniform JSON contract defined in `sc
     "description": null,
     "priority": 2,
     "status": "pending",
+    "is_completed": false,
     "id": 2
   }
 ]
@@ -177,13 +211,19 @@ All error responses across the API follow a uniform JSON contract defined in `sc
 4. **Configure Environment Variables:**
    Ensure `.env` exists in the project root with a valid `DATABASE_URL`.
 
-5. **Run Application:**
+5. **Apply Database Migrations:**
+
+   ```cmd
+   alembic upgrade head
+   ```
+
+6. **Run Application:**
 
    ```cmd
    uvicorn main:app --reload
    ```
 
-6. **Access Interactive Docs:**
+7. **Access Interactive Docs:**
    Navigate to `http://127.0.0.1:8000/docs`
 
 ---
@@ -191,27 +231,30 @@ All error responses across the API follow a uniform JSON contract defined in `sc
 ## Verification Workflow
 
 1. Open `http://127.0.0.1:8000/docs`.
-2. **Verify Create & Database Seed:**
+2. **Verify Database Revision State:**
+   - Run `alembic current` in terminal to confirm database target revision matches `(head)`.
+3. **Verify Create & Database Seed:**
    - Execute `POST /tasks` to create multiple tasks.
-3. **Verify Update Operations (`PUT /tasks/{id}`):**
+4. **Verify Update Operations (`PUT /tasks/{id}`):**
    - Execute `PUT /tasks/1` with payload `{"status": "completed"}`.
    - Confirm status code `200 OK` and verify only `status` changed while other fields remain preserved.
    - Execute `PUT /tasks/1` with an existing title of another task. Confirm `409 Conflict`.
-4. **Verify Database Pagination (`GET /tasks`):**
-   - Execute `GET /tasks?limit=2&offset=0` $\rightarrow$ Returns first 2 tasks.
-   - Execute `GET /tasks?limit=2&offset=2` $\rightarrow$ Returns next slice of tasks.
-   - Execute `GET /tasks?limit=-1` $\rightarrow$ Confirm `422 Unprocessable Entity`.
-5. **Verify Delete Operations (`DELETE /tasks/{id}`):**
-   - Execute `DELETE /tasks/1` $\rightarrow$ Confirm `204 No Content`.
-   - Execute `GET /tasks/1` $\rightarrow$ Confirm `404 Not Found`.
+5. **Verify Database Pagination (`GET /tasks`):**
+   - Execute `GET /tasks?limit=2&offset=0` -> Returns first 2 tasks.
+   - Execute `GET /tasks?limit=2&offset=2` -> Returns next slice of tasks.
+   - Execute `GET /tasks?limit=-1` -> Confirm `422 Unprocessable Entity`.
+6. **Verify Delete Operations (`DELETE /tasks/{id}`):**
+   - Execute `DELETE /tasks/1` -> Confirm `204 No Content`.
+   - Execute `GET /tasks/1` -> Confirm `404 Not Found`.
 
 ---
 
 ## Definition of Done
 
-- [x] Defined `TaskUpdate` schema with optional fields in `schemas/task.py`.
-- [x] Implemented database-backed `update_task` service using `exclude_unset=True` for partial updates and title collision checks.
-- [x] Implemented database-backed `delete_task` service with `204 No Content` HTTP response.
-- [x] Added validated `limit` and `offset` query parameters (`Query`) to `GET /tasks` executed directly via SQL `.offset().limit()`.
-- [x] Enforced uniform `404 Not Found` error responses for missing record updates and deletions.
-- [x] Verified full CRUD and paginated list behavior against PostgreSQL.
+- [x] Installed and initialized Alembic database migration framework.
+- [x] Configured `alembic/env.py` to securely read `DATABASE_URL` dynamically from `.env`.
+- [x] Bound SQLAlchemy `Base.metadata` to Alembic for migration autogeneration.
+- [x] Evolved `Task` model schema by adding `is_completed` boolean column.
+- [x] Generated and applied initial revision migration (`alembic upgrade head`).
+- [x] Removed runtime `Base.metadata.create_all()` execution from `main.py` startup sequence.
+- [x] Documented Alembic setup, workflows, and CLI commands in `README.md`.
