@@ -1,5 +1,5 @@
 from database import Base
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String, Boolean
 
 
 class Task(Base):
@@ -10,3 +10,4 @@ class Task(Base):
     description = Column(String, nullable=True)
     priority = Column(Integer, nullable=False, default=1)
     status = Column(String, nullable=False, default="pending")
+    is_completed = Column(Boolean, nullable=False, default=False)

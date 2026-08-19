@@ -7,11 +7,7 @@ from exceptions.task_exceptions import TaskAlreadyExistsError, TaskNotFoundError
 from routers import task_router, item_router
 from schemas.error import ErrorResponse
 
-from database import Base, engine
-
 app = FastAPI()
-
-Base.metadata.create_all(bind=engine)
 
 app.include_router(task_router.router)
 app.include_router(item_router.router)
