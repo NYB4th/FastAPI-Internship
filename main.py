@@ -3,14 +3,16 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 
+from exceptions.auth_exceptions import UserAlreadyExistsError
 from exceptions.task_exceptions import TaskAlreadyExistsError, TaskNotFoundError
-from routers import task_router, item_router
+from routers import task_router, item_router, auth
 from schemas.error import ErrorResponse
 
 app = FastAPI()
 
 app.include_router(task_router.router)
 app.include_router(item_router.router)
+app.include_router(auth.router)
 
 
 @app.get("/")
@@ -56,3 +58,11 @@ async def valtidation_exception_handler(request: Request, exc: RequestValidation
 
 # WHY jsonable_encoder:
 # Converts complex Pydantic error objects into JSON-safe Python primitives to prevent serialization crashes (500 Internal Server Error).
+
+
+@app.exception_handler(UserAlreadyExistsError)
+async def user_alreadys_exists_handler(request: Request, exc: UserAlreadyExistsError):
+    error_payload = ErrorResponse(error_code="USER_ALREADY_EXISTS", message=exc.message)
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT, content=error_payload.model_dump()
+    )
