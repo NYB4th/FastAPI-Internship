@@ -1,19 +1,20 @@
-# FastAPI Internship Project - Day 7
+# FastAPI Internship Project - Day 8
 
-A modular, enterprise-structured FastAPI application featuring full database-backed CRUD operations for tasks, database-level query pagination, and schema version control using Alembic database migrations. The system manages PostgreSQL persistent state via SQLAlchemy ORM, enforcing strict domain rules, collision checks, partial field updates, and input validation bounds.
+A modular, enterprise-structured FastAPI application featuring secure user registration, database-backed CRUD operations, database-level query pagination, and schema version control using Alembic database migrations. The system manages PostgreSQL persistent state via SQLAlchemy ORM, enforcing strict domain rules, collision checks, input validation bounds, and password security via Bcrypt hashing.
 
 ## Architecture Overview
 
-This project uses a layered architecture to keep HTTP routing, business logic, data persistence, and database migrations cleanly separated:
+This project uses a layered architecture to keep HTTP routing, business logic, security utilities, data persistence, and database migrations cleanly separated:
 
-- **Routers (`routers/`)**: Handles incoming HTTP requests, route binding, query parameter validation (`limit`/`offset`), and HTTP status codes. Injects database sessions via `Depends(get_db)`.
-- **Services (`services/`)**: Implements core business logic, case-insensitive duplicate checks, in-place ORM updates, deletion transactions, and database-level pagination queries.
+- **Routers (`routers/`)**: Handles incoming HTTP requests, route binding, query parameter validation (`limit`/`offset`), payload parsing, and HTTP status codes (`201 Created`, `200 OK`, `204 No Content`). Injects database sessions via `Depends(get_db)`.
+- **Services (`services/`)**: Implements core business logic, user uniqueness checks, password hashing orchestration, case-insensitive task duplicate checks, in-place ORM updates, deletion transactions, and database-level pagination queries.
+- **Utils (`utils/`)**: Enforces security logic such as password hashing and verification using `pwdlib` with explicit `BcryptHasher` configuration.
 - **Database (`database.py`)**: Configures the SQLAlchemy database engine, `SessionLocal` factory, declarative base, and the `get_db` generator dependency.
-- **Models (`models/`)**: Defines SQLAlchemy ORM models representing database tables and column constraints in PostgreSQL.
+- **Models (`models/`)**: Defines SQLAlchemy ORM models (`User`, `Task`) representing database tables and column constraints in PostgreSQL.
 - **Migrations (`alembic/`)**: Manages version-controlled database schema changes (DDL) using Alembic, dynamically bound to `Base.metadata` and environment configuration.
-- **Exceptions (`exceptions/`)**: Contains custom domain exceptions for framework-agnostic error handling.
-- **Schemas (`schemas/`)**: Defines strict Pydantic models for API request validation (`TaskCreate`, `TaskUpdate`), response serialization (`from_attributes=True`), and error payload contracts.
-- **Global Handlers (`main.py`)**: Registers app startup, routers, and global exception handlers for standardized JSON error responses (runtime table auto-creation removed in favor of Alembic migrations).
+- **Exceptions (`exceptions/`)**: Contains custom domain exceptions (`UserAlreadyExistsError`, `TaskNotFoundError`, `TaskAlreadyExistsError`) for framework-agnostic error handling.
+- **Schemas (`schemas/`)**: Defines strict Pydantic models for API request validation (`UserCreate`, `TaskCreate`, `TaskUpdate`), response serialization (`UserResponse`, `from_attributes=True`), and error payload contracts (`ErrorResponse`).
+- **Global Handlers (`main.py`)**: Registers app startup, routers (`auth`, `task_router`, `item_router`), and global exception handlers for standardized JSON error responses.
 
 ---
 
@@ -21,39 +22,48 @@ This project uses a layered architecture to keep HTTP routing, business logic, d
 
 ```text
 fastapi-internship/
-├── .env                # Environment configuration (git-ignored)
-├── .env.example        # Environment configuration template
-├── .gitignore          # Ignores venv/, .env, and build artifacts
-├── alembic.ini         # Alembic CLI configuration file
-├── alembic/            # Database migration environment
-│   ├── env.py          # Migration execution script with dynamic .env loading
-│   ├── README          # Alembic directory description
-│   ├── script.py.mako  # Migration script template
-│   └── versions/       # Version-controlled migration revision files
-│       └── d6692e76d30b_add_is_completed_to_tasks.py
-├── database.py         # SQLAlchemy engine, session factory, and get_db dependency
+├── .env                 # Environment configuration (git-ignored)
+├── .env.example         # Environment configuration template
+├── .gitignore           # Ignores venv/, .env, and build artifacts
+├── alembic.ini          # Alembic CLI configuration file
+├── alembic/             # Database migration environment
+│   ├── env.py           # Migration execution script with dynamic .env loading
+│   ├── README           # Alembic directory description
+│   ├── script.py.mako   # Migration script template
+│   └── versions/        # Version-controlled migration revision files
+│       ├── d6692e76d30b_add_is_completed_to_tasks.py
+│       └── e8f2a10b9c3d_create_users_table.py
+├── database.py          # SQLAlchemy engine, session factory, and get_db dependency
 ├── exceptions/
 │   ├── __init__.py
-│   └── task_exceptions.py # Custom domain exceptions
-├── main.py             # App initialization, routers & global error handlers
+│   ├── auth_exceptions.py # Auth domain exceptions (UserAlreadyExistsError)
+│   └── task_exceptions.py # Task domain exceptions
+├── main.py              # App initialization, routers & global error handlers
 ├── models/
 │   ├── __init__.py
-│   └── task.py         # SQLAlchemy ORM task model (PostgreSQL tasks table)
-├── README.md           # Architecture, database setup, and API specifications
-├── requirements.txt    # Application dependencies (includes Alembic)
+│   ├── task.py          # SQLAlchemy ORM task model
+│   └── user.py          # SQLAlchemy ORM user model (users table)
+├── README.md            # Architecture, database setup, and API specifications
+├── requirements.txt     # Application dependencies (FastAPI, pwdlib[bcrypt], Alembic, etc.)
 ├── routers/
 │   ├── __init__.py
-│   ├── item_router.py  # HTTP endpoints for /items
-│   └── task_router.py  # HTTP endpoints for /tasks (CRUD & pagination)
+│   ├── auth.py          # HTTP endpoints for /auth (User Registration)
+│   ├── item_router.py   # HTTP endpoints for /items
+│   └── task_router.py   # HTTP endpoints for /tasks (CRUD & pagination)
 ├── schemas/
 │   ├── __init__.py
-│   ├── error.py        # Standardized ErrorResponse schema
-│   ├── item.py         # Item validation models
-│   └── task.py         # Task Pydantic schemas (Create, Update, Read)
-└── services/
+│   ├── error.py         # Standardized ErrorResponse schema
+│   ├── item.py          # Item validation models
+│   ├── task.py          # Task Pydantic schemas (Create, Update, Read)
+│   └── user.py          # User Pydantic schemas (UserCreate, UserResponse)
+├── services/
+│   ├── __init__.py
+│   ├── item_service.py  # Business logic & in-memory item store
+│   ├── task_service.py  # Database CRUD operations, pagination & collision checks
+│   └── user_service.py  # User creation & email uniqueness business logic
+└── utils/
     ├── __init__.py
-    ├── item_service.py # Business logic & in-memory item store
-    └── task_service.py # Database CRUD operations, pagination & collision checks
+    └── security.py      # Password hashing & verification utilities (pwdlib + Bcrypt)
 ```
 
 ---
@@ -110,15 +120,47 @@ All error responses across the API follow a uniform JSON contract defined in `sc
 }
 ```
 
-- **`error_code`**: Machine-readable string code (`TASK_NOT_FOUND`, `TASK_DUPLICATE`, `INVALIDATION_ERROR`).
+- **`error_code`**: Machine-readable string code (`USER_ALREADY_EXISTS`, `TASK_NOT_FOUND`, `TASK_DUPLICATE`, `INVALIDATION_ERROR`).
 - **`message`**: Human-readable explanation of the error.
-- **`details`**: Contextual details (contains field location arrays for 422 errors; `null` otherwise).
+- **`details`**: Contextual details (contains field location arrays for 422 validation errors; `null` otherwise).
 
 ---
 
 ## API Request & Response Examples
 
-### 1. Update Existing Task (`PUT /tasks/1`)
+### 1. Register New User (`POST /auth/register`)
+
+- **Request Body:**
+
+```json
+{
+  "email": "user@example.com",
+  "password": "securepassword123"
+}
+```
+
+- **Response (`201 Created`):**
+
+```json
+{
+  "id": 1,
+  "email": "user@example.com"
+}
+```
+
+_(Sensitive fields such as raw passwords or `hashed_password` are strictly stripped from responses via `UserResponse` serialization)._
+
+- **Duplicate Email Response (`409 Conflict`):**
+
+```json
+{
+  "error_code": "USER_ALREADY_EXISTS",
+  "message": "User with email 'user@example.com' already exists.",
+  "details": null
+}
+```
+
+### 2. Update Existing Task (`PUT /tasks/1`)
 
 - **Request Body (Partial Update):**
 
@@ -132,18 +174,14 @@ All error responses across the API follow a uniform JSON contract defined in `sc
 
 ```json
 {
-  "title": "Complete Day 7 Assignment",
-  "description": "Configure Alembic and perform database migrations",
+  "title": "Complete Day 8 Assignment",
+  "description": "Implement user registration and password hashing",
   "priority": 1,
   "status": "completed",
   "is_completed": false,
   "id": 1
 }
 ```
-
-### 2. Delete Task (`DELETE /tasks/1`)
-
-- **Response (`204 No Content`):** Empty body.
 
 ### 3. Paginated Task List (`GET /tasks?limit=2&offset=0`)
 
@@ -174,17 +212,18 @@ All error responses across the API follow a uniform JSON contract defined in `sc
 
 ## API Endpoints
 
-| Method   | Endpoint           | Layer Handling   | Data Store | Success          | Error Codes         | Description                            |
-| :------- | :----------------- | :--------------- | :--------- | :--------------- | :------------------ | :------------------------------------- |
-| `GET`    | `/`                | `main.py`        | N/A        | `200 OK`         | —                   | Root welcome payload                   |
-| `GET`    | `/health`          | `main.py`        | N/A        | `200 OK`         | —                   | System health check                    |
-| `GET`    | `/items`           | `item_router.py` | Memory     | `200 OK`         | —                   | List all items                         |
-| `GET`    | `/items/{item_id}` | `item_router.py` | Memory     | `200 OK`         | `404`               | Retrieve item by ID                    |
-| `POST`   | `/tasks`           | `task_router.py` | PostgreSQL | `201 Created`    | `409`, `422`        | Create task with duplicate title check |
-| `GET`    | `/tasks`           | `task_router.py` | PostgreSQL | `200 OK`         | `422`               | List tasks with `limit` & `offset`     |
-| `GET`    | `/tasks/{task_id}` | `task_router.py` | PostgreSQL | `200 OK`         | `404`               | Retrieve task by ID                    |
-| `PUT`    | `/tasks/{task_id}` | `task_router.py` | PostgreSQL | `200 OK`         | `404`, `409`, `422` | Update existing task (partial/full)    |
-| `DELETE` | `/tasks/{task_id}` | `task_router.py` | PostgreSQL | `204 No Content` | `404`               | Delete task from database              |
+| Method   | Endpoint           | Layer Handling    | Data Store | Success          | Error Codes         | Description                                      |
+| :------- | :----------------- | :---------------- | :--------- | :--------------- | :------------------ | :----------------------------------------------- |
+| `GET`    | `/`                | `main.py`         | N/A        | `200 OK`         | —                   | Root welcome payload                             |
+| `GET`    | `/health`          | `main.py`         | N/A        | `200 OK`         | —                   | System health check                              |
+| `POST`   | `/auth/register`   | `routers/auth.py` | PostgreSQL | `201 Created`    | `409`, `422`        | Register user with Bcrypt hashing & unique check |
+| `GET`    | `/items`           | `item_router.py`  | Memory     | `200 OK`         | —                   | List all items                                   |
+| `GET`    | `/items/{item_id}` | `item_router.py`  | Memory     | `200 OK`         | `404`               | Retrieve item by ID                              |
+| `POST`   | `/tasks`           | `task_router.py`  | PostgreSQL | `201 Created`    | `409`, `422`        | Create task with duplicate title check           |
+| `GET`    | `/tasks`           | `task_router.py`  | PostgreSQL | `200 OK`         | `422`               | List tasks with `limit` & `offset`               |
+| `GET`    | `/tasks/{task_id}` | `task_router.py`  | PostgreSQL | `200 OK`         | `404`               | Retrieve task by ID                              |
+| `PUT`    | `/tasks/{task_id}` | `task_router.py`  | PostgreSQL | `200 OK`         | `404`, `409`, `422` | Update existing task (partial/full)              |
+| `DELETE` | `/tasks/{task_id}` | `task_router.py`  | PostgreSQL | `204 No Content` | `404`               | Delete task from database                        |
 
 ---
 
@@ -233,28 +272,27 @@ All error responses across the API follow a uniform JSON contract defined in `sc
 1. Open `http://127.0.0.1:8000/docs`.
 2. **Verify Database Revision State:**
    - Run `alembic current` in terminal to confirm database target revision matches `(head)`.
-3. **Verify Create & Database Seed:**
+3. **Verify User Registration (`POST /auth/register`):**
+   - Send payload `{"email": "user@example.com", "password": "securepassword123"}`.
+   - Confirm status `201 Created` returning only `id` and `email`.
+   - Re-send exact payload -> Confirm `409 Conflict` with error code `USER_ALREADY_EXISTS`.
+   - Send invalid email syntax -> Confirm `422 Unprocessable Entity`.
+4. **Verify Task Create & Database Seed (`POST /tasks`):**
    - Execute `POST /tasks` to create multiple tasks.
-4. **Verify Update Operations (`PUT /tasks/{id}`):**
-   - Execute `PUT /tasks/1` with payload `{"status": "completed"}`.
-   - Confirm status code `200 OK` and verify only `status` changed while other fields remain preserved.
-   - Execute `PUT /tasks/1` with an existing title of another task. Confirm `409 Conflict`.
-5. **Verify Database Pagination (`GET /tasks`):**
+5. **Verify Update Operations (`PUT /tasks/{id}`):**
+   - Execute `PUT /tasks/1` with payload `{"status": "completed"}` -> Confirm status code `200 OK`.
+6. **Verify Database Pagination (`GET /tasks`):**
    - Execute `GET /tasks?limit=2&offset=0` -> Returns first 2 tasks.
-   - Execute `GET /tasks?limit=2&offset=2` -> Returns next slice of tasks.
-   - Execute `GET /tasks?limit=-1` -> Confirm `422 Unprocessable Entity`.
-6. **Verify Delete Operations (`DELETE /tasks/{id}`):**
-   - Execute `DELETE /tasks/1` -> Confirm `204 No Content`.
-   - Execute `GET /tasks/1` -> Confirm `404 Not Found`.
 
 ---
 
 ## Definition of Done
 
-- [x] Installed and initialized Alembic database migration framework.
-- [x] Configured `alembic/env.py` to securely read `DATABASE_URL` dynamically from `.env`.
-- [x] Bound SQLAlchemy `Base.metadata` to Alembic for migration autogeneration.
-- [x] Evolved `Task` model schema by adding `is_completed` boolean column.
-- [x] Generated and applied initial revision migration (`alembic upgrade head`).
-- [x] Removed runtime `Base.metadata.create_all()` execution from `main.py` startup sequence.
-- [x] Documented Alembic setup, workflows, and CLI commands in `README.md`.
+- [x] Configured `pwdlib` using explicit `BcryptHasher` for irreversible password hashing.
+- [x] Defined `User` SQLAlchemy ORM model with indexed unique `email` and `hashed_password` columns.
+- [x] Generated and applied Alembic database migration for `users` table.
+- [x] Implemented decoupled Pydantic schemas (`UserCreate`, `UserResponse`) ensuring password fields are never leaked.
+- [x] Created `UserAlreadyExistsError` domain exception and registered a global handler in `main.py` mapping to `409 Conflict`.
+- [x] Built `services/user_service.py` to handle database persistence, duplicate email checks, and password hashing.
+- [x] Implemented `/auth/register` route returning `201 Created` with sanitized JSON response.
+- [x] Documented user authentication setup, schemas, endpoints, and verification steps in `README.md`.

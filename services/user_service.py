@@ -12,8 +12,8 @@ def create_user(db: Session, user_data: UserCreate) -> User:
     if existing_user:
         raise UserAlreadyExistsError(email=user_data.email)
 
-    hash_pwd = hash_password(user_data.password)
-    db_user = User(email=user_data.email, hash_password=hash_pwd)
+    hashed_pwd = hash_password(user_data.password)
+    db_user = User(email=user_data.email, hashed_password=hashed_pwd)
 
     db.add(db_user)
     db.commit()
