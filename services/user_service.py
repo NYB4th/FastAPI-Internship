@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from exceptions.auth_exceptions import UserAlreadyExistsError
 from models.user import User
 from schemas.user import UserCreate
-from utils.security import hash_password
+from utils.security import hash_password, verify_password
 
 
 def create_user(db: Session, user_data: UserCreate) -> User:
@@ -19,3 +19,12 @@ def create_user(db: Session, user_data: UserCreate) -> User:
     db.commit()
     db.refresh(db_user)
     return db_user
+
+
+def authenticate_user(db: Session, email: str, password: str) -> User | None:
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        return None
+    if not verify_password(password, str(user.hashed_password)):
+        return None
+    return user

@@ -2,6 +2,8 @@ from fastapi import APIRouter, status, Query, Depends
 from sqlalchemy.orm import Session
 
 from database import get_db
+from dependencies.auth import get_current_user
+from models.user import User
 from schemas.task import TaskRead, TaskCreate, TaskUpdate
 from services import task_service
 
@@ -9,7 +11,12 @@ router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
 
 @router.post("", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
-def create_task(task_in: TaskCreate, db: Session = Depends(get_db)):
+def create_task(
+    task_in: TaskCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+
     return task_service.create_task(task_in, db)
 
 
@@ -28,10 +35,19 @@ def get_by_id(task_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/{task_id}", response_model=TaskRead, status_code=status.HTTP_200_OK)
-def update_task(task_id: int, task_in: TaskUpdate, db: Session = Depends(get_db)):
+def update_task(
+    task_id: int,
+    task_in: TaskUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     return task_service.update_task(task_id, task_in, db)
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_task(task_id: int, db: Session = Depends(get_db)):
+def delete_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     task_service.delete_task(task_id, db)
