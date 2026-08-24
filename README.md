@@ -1,12 +1,12 @@
-# FastAPI Internship Project - Day 9
+# FastAPI Internship Project - Day 10
 
-A modular, enterprise-structured FastAPI application featuring secure user registration, JWT-based authentication, OAuth2 password flow, dependency-driven route authorization, database-backed CRUD operations, database-level query pagination, and schema version control using Alembic database migrations. The system manages PostgreSQL persistent state via SQLAlchemy ORM, enforcing strict domain rules, collision checks, input validation bounds, password security via Bcrypt hashing, and cryptographic token verification via PyJWT.
+A modular, enterprise-structured FastAPI application featuring secure user registration, JWT-based authentication, OAuth2 password flow, dependency-driven route authorization, database-backed CRUD operations, database-level query pagination, schema version control using Alembic, and a fully automated integration testing suite built with Pytest. The system manages PostgreSQL persistent state via SQLAlchemy ORM in production and uses an isolated, in-memory SQLite database for automated testing, enforcing strict domain rules, collision checks, input validation bounds, password security via Bcrypt hashing, and cryptographic token verification via PyJWT.
 
 ## Architecture Overview
 
-This project uses a layered architecture to keep HTTP routing, business logic, security utilities, data persistence, and database migrations cleanly separated:
+This project uses a layered architecture to keep HTTP routing, business logic, security utilities, data persistence, database migrations, and automated testing cleanly separated:
 
-- **Routers (`routers/`)**: Handles incoming HTTP requests, route binding, query parameter validation (`limit`/`offset`), form data parsing (`OAuth2PasswordRequestForm`), payload parsing, and HTTP status codes (`201 Created`, `200 OK`, `204 No Content`, `401 Unauthorized`).
+- **Routers (`routers/`)**: Handles incoming HTTP requests, route binding, query parameter validation (`limit`/`offset`), form data parsing (`OAuth2PasswordRequestForm`), payload parsing, and HTTP status codes (`201 Created`, `200 OK`, `204 No Content`, `401 Unauthorized`, `422 Unprocessable Entity`).
 - **Dependencies (`dependencies/`)**: Implements reusable request authorization dependencies (`get_current_user`) using `OAuth2PasswordBearer` to extract, decode, and validate incoming Bearer tokens across protected routes.
 - **Services (`services/`)**: Implements core business logic, user uniqueness checks, credential authentication (`authenticate_user`), password hashing orchestration, case-insensitive task duplicate checks, in-place ORM updates, deletion transactions, and database-level pagination queries.
 - **Utils (`utils/`)**: Enforces security logic such as password hashing and verification using `pwdlib` (with explicit `BcryptHasher`), alongside JWT generation (`create_access_token`) using `PyJWT`.
@@ -16,6 +16,7 @@ This project uses a layered architecture to keep HTTP routing, business logic, s
 - **Exceptions (`exceptions/`)**: Contains custom domain exceptions (`UserAlreadyExistsError`, `TaskNotFoundError`, `TaskAlreadyExistsError`) for framework-agnostic error handling.
 - **Schemas (`schemas/`)**: Defines strict Pydantic models for API request validation (`UserCreate`, `TaskCreate`, `TaskUpdate`), response serialization (`UserResponse`, `from_attributes=True`), OAuth2 tokens (`Token`, `TokenData`), and error payload contracts (`ErrorResponse`).
 - **Global Handlers (`main.py`)**: Registers app startup, routers (`auth`, `task_router`, `item_router`), and global exception handlers for standardized JSON error responses.
+- **Automated Tests (`tests/`)**: Contains modular integration test suites (`test_health.py`, `test_auth.py`, `test_tasks.py`) powered by Pytest, `TestClient`, and a shared test infrastructure (`conftest.py`) enforcing complete database isolation via FastAPI `dependency_overrides`.
 
 ---
 
@@ -47,8 +48,9 @@ fastapi-internship/
 │   ├── __init__.py
 │   ├── task.py          # SQLAlchemy ORM task model
 │   └── user.py          # SQLAlchemy ORM user model (users table)
+├── pytest.ini           # Pytest runner, testpaths, and coverage configuration
 ├── README.md            # Architecture, database setup, and API specifications
-├── requirements.txt     # Application dependencies (FastAPI, PyJWT, python-multipart, etc.)
+├── requirements.txt     # Application & testing dependencies (FastAPI, PyJWT, pytest, pytest-cov, httpx, etc.)
 ├── routers/
 │   ├── __init__.py
 │   ├── auth.py          # HTTP endpoints for /auth (Registration & Token Login)
@@ -66,6 +68,12 @@ fastapi-internship/
 │   ├── item_service.py  # Business logic & in-memory item store
 │   ├── task_service.py  # Database CRUD operations, pagination & collision checks
 │   └── user_service.py  # User creation, authentication & email uniqueness logic
+├── tests/               # Automated test suite
+│   ├── __init__.py
+│   ├── conftest.py      # Shared TestClient & SQLite in-memory DB isolation fixtures
+│   ├── test_auth.py     # User registration, duplicate email & token login tests
+│   ├── test_health.py   # Root (/) and health check (/health) endpoint tests
+│   └── test_tasks.py    # Authenticated task CRUD & input validation failure tests
 └── utils/
     ├── __init__.py
     └── security.py      # Password hashing (pwdlib) & JWT token utilities (PyJWT)
@@ -108,6 +116,26 @@ Database connection strings and JWT cryptographic secrets are loaded dynamically
      ```
 
 > **Security Note:** `.env` contains local secrets and database credentials and is excluded from source control via `.gitignore`. Never commit raw `SECRET_KEY` values to public repositories.
+
+---
+
+## Automated Testing & Test Isolation
+
+The repository includes a fully automated test suite configured with Pytest, `TestClient`, and code coverage reporting (`pytest-cov`).
+
+### Test Isolation Strategy (Protecting Production Data)
+
+- **In-Memory SQLite Engine:** Tests execute against an isolated SQLite database held entirely in system memory (`sqlite:///:memory:`). Production PostgreSQL data is completely untouched during test runs.
+- **FastAPI Dependency Overrides:** `tests/conftest.py` utilizes `app.dependency_overrides[get_db]` to intercept database session injection across all routers, transparently substituting production database sessions with temporary test sessions.
+- **Per-Test Schema Lifecycle:** The `db_session` Pytest fixture executes `Base.metadata.create_all()` before each individual test runs and invokes `Base.metadata.drop_all()` immediately after completion, guaranteeing 100% test independence without leftover data side effects.
+
+### Executing the Test Suite
+
+Run all automated tests and generate a line-by-line coverage report:
+
+```cmd
+pytest
+```
 
 ---
 
@@ -183,8 +211,9 @@ username=user@example.com&password=securepassword123
 
 ```json
 {
-  "title": "Complete Day 9 Assignment",
-  "description": "Implement JWT authentication and route protection"
+  "title": "Complete Integration Tests",
+  "description": "Implement automated testing with Pytest and TestClient",
+  "priority": 1
 }
 ```
 
@@ -192,8 +221,8 @@ username=user@example.com&password=securepassword123
 
 ```json
 {
-  "title": "Complete Day 9 Assignment",
-  "description": "Implement JWT authentication and route protection",
+  "title": "Complete Integration Tests",
+  "description": "Implement automated testing with Pytest and TestClient",
   "priority": 1,
   "status": "pending",
   "is_completed": false,
@@ -257,12 +286,24 @@ username=user@example.com&password=securepassword123
    uvicorn main:app --reload
    ```
 
-6. **Access Interactive Docs:**
+6. **Run Automated Tests:**
+
+   ```cmd
+   pytest
+   ```
+
+7. **Access Interactive Docs:**
    Navigate to `http://127.0.0.1:8000/docs`
 
 ---
 
-## Verification Workflow via Swagger UI
+## Verification Workflow via Swagger UI & Pytest
+
+### 1. Automated Verification (CLI)
+
+Run `pytest` in your terminal. Confirm that all 10 integration tests pass covering root health, user registration, token login, authenticated task creation, fetch-by-ID, unauthenticated blocking (401), and input validation bounds (422).
+
+### 2. Manual Verification (Swagger UI)
 
 1. Open `http://127.0.0.1:8000/docs`.
 2. **Verify Denied Access (Unauthenticated):**
@@ -284,13 +325,13 @@ username=user@example.com&password=securepassword123
 
 ## Definition of Done
 
-- [x] Installed and configured `PyJWT` for cryptographic token generation/validation and `python-multipart` for form decoding.
-- [x] Defined `SECRET_KEY`, `ALGORITHM`, and `ACCESS_TOKEN_EXPIRE_MINUTES` environment variables.
-- [x] Implemented `create_access_token` utility in `utils/security.py` embedding subject (`sub`) and expiration (`exp`) claims.
-- [x] Created `Token` and `TokenData` Pydantic models for OAuth2 token responses and claim validation.
-- [x] Implemented `authenticate_user` service logic verifying plain passwords against stored Bcrypt hashes.
-- [x] Built `/auth/token` login endpoint accepting `OAuth2PasswordRequestForm` and returning signed access tokens.
-- [x] Built `get_current_user` dependency in `dependencies/auth.py` using `OAuth2PasswordBearer` to extract, decode, and validate tokens.
-- [x] Protected `POST /tasks` endpoint using `current_user: User = Depends(get_current_user)`.
-- [x] Verified `201 Created` responses for valid tokens and generic `401 Unauthorized` responses for missing/invalid credentials.
-- [x] Documented setup, security configurations, endpoints, and verification steps in `README.md`.
+- [x] Installed `pytest`, `pytest-cov`, and `httpx` dependencies for automated API testing.
+- [x] Configured `pytest.ini` for test discovery and terminal coverage reports.
+- [x] Built `tests/conftest.py` providing `TestClient` and SQLite in-memory database isolation.
+- [x] Implemented `app.dependency_overrides` to safely bypass production PostgreSQL during test execution.
+- [x] Implemented root (`/`) and health check (`/health`) endpoint assertions in `tests/test_health.py`.
+- [x] Implemented registration, duplicate email rejection (409), and OAuth2 form token issuance tests in `tests/test_auth.py`.
+- [x] Implemented authenticated task creation, retrieval by ID, and unauthenticated rejection (401) tests in `tests/test_tasks.py`.
+- [x] Implemented schema boundary validation rejection tests (422) for missing titles and out-of-range priority values.
+- [x] Verified zero data side effects or test-order dependencies by executing repeated test runs cleanly.
+- [x] Updated project documentation and setup instructions in `README.md`.
