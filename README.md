@@ -1,22 +1,22 @@
-# FastAPI Internship Project - Day 10
+# FastAPI Internship Project - Day 11
 
-A modular, enterprise-structured FastAPI application featuring secure user registration, JWT-based authentication, OAuth2 password flow, dependency-driven route authorization, database-backed CRUD operations, database-level query pagination, schema version control using Alembic, and a fully automated integration testing suite built with Pytest. The system manages PostgreSQL persistent state via SQLAlchemy ORM in production and uses an isolated, in-memory SQLite database for automated testing, enforcing strict domain rules, collision checks, input validation bounds, password security via Bcrypt hashing, and cryptographic token verification via PyJWT.
+A modular, enterprise-structured FastAPI application featuring secure user registration, JWT-based authentication, OAuth2 password flow, dependency-driven route authorization, database-backed CRUD operations, database-level query pagination, schema version control using Alembic, asynchronous external API integration with `httpx`, and a fully automated integration testing suite built with Pytest. The system manages PostgreSQL persistent state via SQLAlchemy ORM in production, uses an isolated in-memory SQLite database for test suites, and integrates non-blocking third-party API clients with bounded timeouts and custom domain error handling.
 
 ## Architecture Overview
 
-This project uses a layered architecture to keep HTTP routing, business logic, security utilities, data persistence, database migrations, and automated testing cleanly separated:
+This project uses a layered architecture to keep HTTP routing, business logic, security utilities, external API integrations, data persistence, database migrations, and automated testing cleanly separated:
 
-- **Routers (`routers/`)**: Handles incoming HTTP requests, route binding, query parameter validation (`limit`/`offset`), form data parsing (`OAuth2PasswordRequestForm`), payload parsing, and HTTP status codes (`201 Created`, `200 OK`, `204 No Content`, `401 Unauthorized`, `422 Unprocessable Entity`).
+- **Routers (`routers/`)**: Handles incoming HTTP requests, route binding, query parameter validation (`limit`/`offset`), form data parsing (`OAuth2PasswordRequestForm`), payload parsing, path validation (`post_id >= 1`), and HTTP status codes (`201 Created`, `200 OK`, `204 No Content`, `401 Unauthorized`, `404 Not Found`, `502 Bad Gateway`, `504 Gateway Timeout`, `422 Unprocessable Entity`).
 - **Dependencies (`dependencies/`)**: Implements reusable request authorization dependencies (`get_current_user`) using `OAuth2PasswordBearer` to extract, decode, and validate incoming Bearer tokens across protected routes.
-- **Services (`services/`)**: Implements core business logic, user uniqueness checks, credential authentication (`authenticate_user`), password hashing orchestration, case-insensitive task duplicate checks, in-place ORM updates, deletion transactions, and database-level pagination queries.
+- **Services (`services/`)**: Implements core business logic, user uniqueness checks, credential authentication (`authenticate_user`), password hashing orchestration, case-insensitive task duplicate checks, in-place ORM updates, deletion transactions, database-level pagination queries, and non-blocking asynchronous HTTP calls (`httpx.AsyncClient`) with bounded 5.0-second timeouts.
 - **Utils (`utils/`)**: Enforces security logic such as password hashing and verification using `pwdlib` (with explicit `BcryptHasher`), alongside JWT generation (`create_access_token`) using `PyJWT`.
 - **Database (`database.py`)**: Configures the SQLAlchemy database engine, `SessionLocal` factory, declarative base, and the `get_db` generator dependency.
 - **Models (`models/`)**: Defines SQLAlchemy ORM models (`User`, `Task`) representing database tables and column constraints in PostgreSQL.
 - **Migrations (`alembic/`)**: Manages version-controlled database schema changes (DDL) using Alembic, dynamically bound to `Base.metadata` and environment configuration.
-- **Exceptions (`exceptions/`)**: Contains custom domain exceptions (`UserAlreadyExistsError`, `TaskNotFoundError`, `TaskAlreadyExistsError`) for framework-agnostic error handling.
-- **Schemas (`schemas/`)**: Defines strict Pydantic models for API request validation (`UserCreate`, `TaskCreate`, `TaskUpdate`), response serialization (`UserResponse`, `from_attributes=True`), OAuth2 tokens (`Token`, `TokenData`), and error payload contracts (`ErrorResponse`).
-- **Global Handlers (`main.py`)**: Registers app startup, routers (`auth`, `task_router`, `item_router`), and global exception handlers for standardized JSON error responses.
-- **Automated Tests (`tests/`)**: Contains modular integration test suites (`test_health.py`, `test_auth.py`, `test_tasks.py`) powered by Pytest, `TestClient`, and a shared test infrastructure (`conftest.py`) enforcing complete database isolation via FastAPI `dependency_overrides`.
+- **Exceptions (`exceptions/`)**: Contains custom domain exceptions for auth (`UserAlreadyExistsError`), tasks (`TaskNotFoundError`, `TaskAlreadyExistsError`), and upstream external services (`UpstreamNotFoundError`, `UpstreamTimeoutError`, `UpstreamApiError`) for framework-agnostic error translation.
+- **Schemas (`schemas/`)**: Defines strict Pydantic models for API request validation (`UserCreate`, `TaskCreate`, `TaskUpdate`), response serialization (`UserResponse`, `PostResponse` with camelCase `alias` mappings), OAuth2 tokens (`Token`, `TokenData`), and error payload contracts (`ErrorResponse`).
+- **Global Handlers (`main.py`)**: Registers app startup, routers (`auth`, `task_router`, `item_router`, `external`), and global exception handlers converting domain exceptions into standardized JSON error payloads.
+- **Automated Tests (`tests/`)**: Contains modular integration test suites (`test_health.py`, `test_auth.py`, `test_tasks.py`, `test_external.py`) powered by Pytest, `TestClient`, network mocking (`AsyncMock`), and a shared test infrastructure (`conftest.py`) enforcing complete database isolation.
 
 ---
 
@@ -41,8 +41,9 @@ fastapi-internship/
 │   └── auth.py          # OAuth2PasswordBearer & get_current_user dependency
 ├── exceptions/
 │   ├── __init__.py
-│   ├── auth_exceptions.py # Auth domain exceptions (UserAlreadyExistsError)
-│   └── task_exceptions.py # Task domain exceptions
+│   ├── auth_exceptions.py     # Auth domain exceptions (UserAlreadyExistsError)
+│   ├── external_exceptions.py # External domain exceptions (UpstreamNotFoundError, UpstreamTimeoutError, UpstreamApiError)
+│   └── task_exceptions.py     # Task domain exceptions
 ├── main.py              # App initialization, routers & global error handlers
 ├── models/
 │   ├── __init__.py
@@ -50,28 +51,32 @@ fastapi-internship/
 │   └── user.py          # SQLAlchemy ORM user model (users table)
 ├── pytest.ini           # Pytest runner, testpaths, and coverage configuration
 ├── README.md            # Architecture, database setup, and API specifications
-├── requirements.txt     # Application & testing dependencies (FastAPI, PyJWT, pytest, pytest-cov, httpx, etc.)
+├── requirements.txt     # Application dependencies (FastAPI, PyJWT, httpx, pytest, pytest-cov, etc.)
 ├── routers/
 │   ├── __init__.py
 │   ├── auth.py          # HTTP endpoints for /auth (Registration & Token Login)
+│   ├── external.py      # HTTP endpoints for /external (JSONPlaceholder integration)
 │   ├── item_router.py   # HTTP endpoints for /items
 │   └── task_router.py   # HTTP endpoints for /tasks (CRUD, pagination & Auth Protection)
 ├── schemas/
 │   ├── __init__.py
 │   ├── error.py         # Standardized ErrorResponse schema
+│   ├── external.py      # PostResponse schema with userId alias mapping
 │   ├── item.py          # Item validation models
 │   ├── task.py          # Task Pydantic schemas (Create, Update, Read)
 │   ├── token.py         # Token & TokenData Pydantic schemas
 │   └── user.py          # User Pydantic schemas (UserCreate, UserResponse)
 ├── services/
 │   ├── __init__.py
-│   ├── item_service.py  # Business logic & in-memory item store
-│   ├── task_service.py  # Database CRUD operations, pagination & collision checks
-│   └── user_service.py  # User creation, authentication & email uniqueness logic
+│   ├── external_service.py # Non-blocking HTTP client calls with timeout & exception mapping
+│   ├── item_service.py     # Business logic & in-memory item store
+│   ├── task_service.py     # Database CRUD operations, pagination & collision checks
+│   └── user_service.py     # User creation, authentication & email uniqueness logic
 ├── tests/               # Automated test suite
 │   ├── __init__.py
 │   ├── conftest.py      # Shared TestClient & SQLite in-memory DB isolation fixtures
 │   ├── test_auth.py     # User registration, duplicate email & token login tests
+│   ├── test_external.py # Mocked external API success, timeout & 404 tests
 │   ├── test_health.py   # Root (/) and health check (/health) endpoint tests
 │   └── test_tasks.py    # Authenticated task CRUD & input validation failure tests
 └── utils/
@@ -123,10 +128,11 @@ Database connection strings and JWT cryptographic secrets are loaded dynamically
 
 The repository includes a fully automated test suite configured with Pytest, `TestClient`, and code coverage reporting (`pytest-cov`).
 
-### Test Isolation Strategy (Protecting Production Data)
+### Test Isolation Strategy (Protecting Production Data & External Services)
 
-- **In-Memory SQLite Engine:** Tests execute against an isolated SQLite database held entirely in system memory (`sqlite:///:memory:`). Production PostgreSQL data is completely untouched during test runs.
+- **In-Memory SQLite Engine:** Database tests execute against an isolated SQLite database held entirely in system memory (`sqlite:///:memory:`). Production PostgreSQL data is completely untouched during test runs.
 - **FastAPI Dependency Overrides:** `tests/conftest.py` utilizes `app.dependency_overrides[get_db]` to intercept database session injection across all routers, transparently substituting production database sessions with temporary test sessions.
+- **Network Isolation via Mocking:** `tests/test_external.py` uses `unittest.mock.patch` and `AsyncMock` to intercept calls to `get_external_post`. Tests simulate upstream 200 OK responses, 404 Not Found errors, and 504 Timeouts locally without relying on live third-party network availability.
 - **Per-Test Schema Lifecycle:** The `db_session` Pytest fixture executes `Base.metadata.create_all()` before each individual test runs and invokes `Base.metadata.drop_all()` immediately after completion, guaranteeing 100% test independence without leftover data side effects.
 
 ### Executing the Test Suite
@@ -151,7 +157,7 @@ All error responses across the API follow a uniform JSON contract defined in `sc
 }
 ```
 
-- **`error_code`**: Machine-readable string code (`USER_ALREADY_EXISTS`, `TASK_NOT_FOUND`, `TASK_DUPLICATE`, `INVALIDATION_ERROR`).
+- **`error_code`**: Machine-readable string code (`USER_ALREADY_EXISTS`, `TASK_NOT_FOUND`, `TASK_DUPLICATE`, `INVALIDATION_ERROR`, `UPSTREAM_NOT_FOUND`, `UPSTREAM_TIMEOUT`, `UPSTREAM_ERROR`).
 - **`message`**: Human-readable explanation of the error.
 - **`details`**: Contextual details (contains field location arrays for 422 validation errors; `null` otherwise).
 
@@ -159,7 +165,41 @@ All error responses across the API follow a uniform JSON contract defined in `sc
 
 ## API Request & Response Examples
 
-### 1. Register New User (`POST /auth/register`)
+### 1. Fetch External Post (`GET /external/posts/{post_id}`)
+
+- **Request:** `GET /external/posts/1`
+- **Response (`200 OK`):**
+
+```json
+{
+  "userId": 1,
+  "id": 1,
+  "title": "sunt aut facere repellat provident occaecati excepturi optio reprehenderit",
+  "body": "quia et suscipit\nsuscipit recusandae consequuntur expedita et cum\nreprehenderit molestiae ut ut quas totam\nnostrum rerum est autem sunt rem eveniet architecto"
+}
+```
+
+- **Upstream Resource Not Found Response (`404 Not Found`):**
+
+```json
+{
+  "error_code": "UPSTREAM_NOT_FOUND",
+  "message": "The requested external resource was not found.",
+  "details": null
+}
+```
+
+- **Upstream Timeout Response (`504 Gateway Timeout`):**
+
+```json
+{
+  "error_code": "UPSTREAM_TIMEOUT",
+  "message": "The external service request timed out.",
+  "details": null
+}
+```
+
+### 2. Register New User (`POST /auth/register`)
 
 - **Request Body:**
 
@@ -179,7 +219,7 @@ All error responses across the API follow a uniform JSON contract defined in `sc
 }
 ```
 
-### 2. Obtain Access Token (`POST /auth/token`)
+### 3. Obtain Access Token (`POST /auth/token`)
 
 - **Request Body (`application/x-www-form-urlencoded`):**
 
@@ -196,23 +236,15 @@ username=user@example.com&password=securepassword123
 }
 ```
 
-- **Invalid Credentials Response (`401 Unauthorized`):**
-
-```json
-{
-  "detail": "Incorrect email or password"
-}
-```
-
-### 3. Create Task - Protected Endpoint (`POST /tasks`)
+### 4. Create Task - Protected Endpoint (`POST /tasks`)
 
 - **Header Required:** `Authorization: Bearer <access_token>`
 - **Request Body:**
 
 ```json
 {
-  "title": "Complete Integration Tests",
-  "description": "Implement automated testing with Pytest and TestClient",
+  "title": "Complete Async API Integration",
+  "description": "Integrate httpx with explicit timeout and error handling",
   "priority": 1
 }
 ```
@@ -221,8 +253,8 @@ username=user@example.com&password=securepassword123
 
 ```json
 {
-  "title": "Complete Integration Tests",
-  "description": "Implement automated testing with Pytest and TestClient",
+  "title": "Complete Async API Integration",
+  "description": "Integrate httpx with explicit timeout and error handling",
   "priority": 1,
   "status": "pending",
   "is_completed": false,
@@ -230,31 +262,24 @@ username=user@example.com&password=securepassword123
 }
 ```
 
-- **Missing or Invalid Token Response (`401 Unauthorized`):**
-
-```json
-{
-  "detail": "Could not validate credentials"
-}
-```
-
 ---
 
 ## API Endpoints
 
-| Method   | Endpoint           | Security           | Layer Handling    | Success          | Error Codes         | Description                                      |
-| :------- | :----------------- | :----------------- | :---------------- | :--------------- | :------------------ | :----------------------------------------------- |
-| `GET`    | `/`                | Public             | `main.py`         | `200 OK`         | —                   | Root welcome payload                             |
-| `GET`    | `/health`          | Public             | `main.py`         | `200 OK`         | —                   | System health check                              |
-| `POST`   | `/auth/register`   | Public             | `routers/auth.py` | `201 Created`    | `409`, `422`        | Register user with Bcrypt hashing & unique check |
-| `POST`   | `/auth/token`      | Public (Form Data) | `routers/auth.py` | `200 OK`         | `401`, `422`        | Verify credentials & return signed JWT token     |
-| `GET`    | `/items`           | Public             | `item_router.py`  | `200 OK`         | —                   | List all items                                   |
-| `GET`    | `/items/{item_id}` | Public             | `item_router.py`  | `200 OK`         | `404`               | Retrieve item by ID                              |
-| `POST`   | `/tasks`           | **Bearer Token**   | `task_router.py`  | `201 Created`    | `401`, `409`, `422` | Protected: Create task for authenticated user    |
-| `GET`    | `/tasks`           | Public             | `task_router.py`  | `200 OK`         | `422`               | List tasks with `limit` & `offset`               |
-| `GET`    | `/tasks/{task_id}` | Public             | `task_router.py`  | `200 OK`         | `404`               | Retrieve task by ID                              |
-| `PUT`    | `/tasks/{task_id}` | Public             | `task_router.py`  | `200 OK`         | `404`, `409`, `422` | Update existing task (partial/full)              |
-| `DELETE` | `/tasks/{task_id}` | Public             | `task_router.py`  | `204 No Content` | `404`               | Delete task from database                        |
+| Method   | Endpoint                    | Security           | Layer Handling        | Success          | Error Codes                | Description                                               |
+| :------- | :-------------------------- | :----------------- | :-------------------- | :--------------- | :------------------------- | :-------------------------------------------------------- |
+| `GET`    | `/`                         | Public             | `main.py`             | `200 OK`         | —                          | Root welcome payload                                      |
+| `GET`    | `/health`                   | Public             | `main.py`             | `200 OK`         | —                          | System health check                                       |
+| `GET`    | `/external/posts/{post_id}` | Public             | `routers/external.py` | `200 OK`         | `404`, `502`, `504`, `422` | Asynchronous fetch from JSONPlaceholder with 5.0s timeout |
+| `POST`   | `/auth/register`            | Public             | `routers/auth.py`     | `201 Created`    | `409`, `422`               | Register user with Bcrypt hashing & unique check          |
+| `POST`   | `/auth/token`               | Public (Form Data) | `routers/auth.py`     | `200 OK`         | `401`, `422`               | Verify credentials & return signed JWT token              |
+| `GET`    | `/items`                    | Public             | `item_router.py`      | `200 OK`         | —                          | List all items                                            |
+| `GET`    | `/items/{item_id}`          | Public             | `item_router.py`      | `200 OK`         | `404`                      | Retrieve item by ID                                       |
+| `POST`   | `/tasks`                    | **Bearer Token**   | `task_router.py`      | `201 Created`    | `401`, `409`, `422`        | Protected: Create task for authenticated user             |
+| `GET`    | `/tasks`                    | Public             | `task_router.py`      | `200 OK`         | `422`                      | List tasks with `limit` & `offset`                        |
+| `GET`    | `/tasks/{task_id}`          | Public             | `task_router.py`      | `200 OK`         | `404`                      | Retrieve task by ID                                       |
+| `PUT`    | `/tasks/{task_id}`          | Public             | `task_router.py`      | `200 OK`         | `404`, `409`, `422`        | Update existing task (partial/full)                       |
+| `DELETE` | `/tasks/{task_id}`          | Public             | `task_router.py`      | `204 No Content` | `404`                      | Delete task from database                                 |
 
 ---
 
@@ -301,37 +326,30 @@ username=user@example.com&password=securepassword123
 
 ### 1. Automated Verification (CLI)
 
-Run `pytest` in your terminal. Confirm that all 10 integration tests pass covering root health, user registration, token login, authenticated task creation, fetch-by-ID, unauthenticated blocking (401), and input validation bounds (422).
+Run `pytest` in your terminal. Confirm that all integration tests pass covering root health, user registration, token login, authenticated task creation, fetch-by-ID, input validation bounds (422), and mocked external service integration (200 OK, 404 Not Found, 504 Timeout).
 
 ### 2. Manual Verification (Swagger UI)
 
 1. Open `http://127.0.0.1:8000/docs`.
-2. **Verify Denied Access (Unauthenticated):**
-   - Expand `POST /tasks`, click **Try it out**, enter task details, and click **Execute**.
-   - Confirm response status is `401 Unauthorized`.
-3. **Register & Obtain Token (`POST /auth/token`):**
-   - Register a user via `POST /auth/register` if necessary.
-   - Click the green **Authorize** button at the top right of the page.
-   - Enter your email in **username** and your password in **password**.
-   - Click **Authorize**, then **Close**.
-4. **Verify Allowed Access (Authenticated):**
-   - Execute `POST /tasks` again.
-   - Confirm status code is `201 Created` and the task object is returned.
-5. **Verify Token Invalidation on Logout:**
-   - Click **Authorize** -> **Logout**.
-   - Re-execute `POST /tasks` -> Confirm response returns `401 Unauthorized`.
+2. **Verify External API Endpoint (`GET /external/posts/{post_id}`):**
+   - Expand `GET /external/posts/{post_id}`, click **Try it out**, enter `post_id = 1`, and click **Execute**.
+   - Confirm status code is `200 OK` and data returns from JSONPlaceholder.
+   - Enter `post_id = 999999` and click **Execute**.
+   - Confirm response status code is `404 Not Found` with `UPSTREAM_NOT_FOUND` error code.
+3. **Verify Protected Task Endpoint (`POST /tasks`):**
+   - Execute without authorization -> Confirm `401 Unauthorized`.
+   - Obtain token via `POST /auth/token`, click **Authorize**, submit credentials, and execute `POST /tasks` -> Confirm `201 Created`.
 
 ---
 
 ## Definition of Done
 
-- [x] Installed `pytest`, `pytest-cov`, and `httpx` dependencies for automated API testing.
-- [x] Configured `pytest.ini` for test discovery and terminal coverage reports.
-- [x] Built `tests/conftest.py` providing `TestClient` and SQLite in-memory database isolation.
-- [x] Implemented `app.dependency_overrides` to safely bypass production PostgreSQL during test execution.
-- [x] Implemented root (`/`) and health check (`/health`) endpoint assertions in `tests/test_health.py`.
-- [x] Implemented registration, duplicate email rejection (409), and OAuth2 form token issuance tests in `tests/test_auth.py`.
-- [x] Implemented authenticated task creation, retrieval by ID, and unauthenticated rejection (401) tests in `tests/test_tasks.py`.
-- [x] Implemented schema boundary validation rejection tests (422) for missing titles and out-of-range priority values.
-- [x] Verified zero data side effects or test-order dependencies by executing repeated test runs cleanly.
+- [x] Installed `httpx` dependency for non-blocking asynchronous HTTP requests.
+- [x] Created `PostResponse` schema in `schemas/external.py` with `alias="userId"` mapping camelCase fields to snake_case.
+- [x] Defined custom domain exceptions (`UpstreamNotFoundError`, `UpstreamTimeoutError`, `UpstreamApiError`) in `exceptions/external_exceptions.py`.
+- [x] Implemented `get_external_post` service in `services/external_service.py` using `httpx.AsyncClient` with an explicit 5.0-second timeout.
+- [x] Implemented `GET /external/posts/{post_id}` route handler in `routers/external.py` with numerical path validation (`post_id >= 1`).
+- [x] Registered `external.router` and global exception handlers in `main.py` translating upstream errors to `404`, `504`, and `502` HTTP statuses.
+- [x] Created network-isolated tests in `tests/test_external.py` using `AsyncMock` to verify success, 404, and timeout handling without live internet reliance.
+- [x] Executed Pytest suite successfully verifying zero regressions across existing authentication and task CRUD tests.
 - [x] Updated project documentation and setup instructions in `README.md`.
