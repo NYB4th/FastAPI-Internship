@@ -1,6 +1,6 @@
-# FastAPI Internship Project - Day 12
+# FastAPI Internship Project - Day 13
 
-A modular, enterprise-structured FastAPI application featuring secure user registration, JWT-based authentication, OAuth2 password flow, dependency-driven user route authorization, user-scoped relational database CRUD operations with foreign key constraints, database-level query pagination, schema version control using Alembic, centralized environment configuration via `pydantic-settings`, custom middleware for request timing and CORS controls, asynchronous external API integration with `httpx`, and a fully automated integration testing suite built with Pytest. The system manages PostgreSQL persistent state via SQLAlchemy ORM in production, uses an isolated in-memory SQLite database for test suites, and enforces strict resource ownership isolation (`403 Forbidden`) across all user-created resources.
+A modular, enterprise-structured FastAPI application featuring secure user registration, JWT-based authentication, OAuth2 password flow, dependency-driven user route authorization, user-scoped relational database CRUD operations with foreign key constraints, database-level query pagination, schema version control using Alembic, centralized environment configuration via `pydantic-settings`, custom request logging middleware with monotonic timing (`time.perf_counter()`) and correlation IDs (`X-Request-ID`), CORS controls, asynchronous external API integration with `httpx`, and a fully automated integration testing suite built with Pytest. The system manages PostgreSQL persistent state via SQLAlchemy ORM in production, uses an isolated in-memory SQLite database for test suites, and enforces strict resource ownership isolation (`403 Forbidden`) across all user-created resources.
 
 ## Architecture Overview
 
@@ -10,7 +10,7 @@ This project uses a layered architecture to keep HTTP routing, business logic, s
 - **Dependencies (`dependencies/`)**: Implements reusable request authorization dependencies (`get_current_user`) using `OAuth2PasswordBearer` to extract, decode, and validate incoming Bearer tokens across protected routes, returning the authenticated `User` model context.
 - **Services (`services/`)**: Implements core business logic, user uniqueness checks, credential authentication (`authenticate_user`), password hashing orchestration, case-insensitive task duplicate checks per user, user-scoped ORM queries (`Task.user_id == current_user.id`), in-place ORM updates, deletion transactions, database-level pagination, and non-blocking asynchronous HTTP calls (`httpx.AsyncClient`) with bounded 5.0-second timeouts.
 - **Utils & Config (`utils/`, `config.py`)**: Manages type-safe application settings via `pydantic-settings` (`Settings`), and enforces security logic such as password hashing and verification using `pwdlib` (with explicit `BcryptHasher`), alongside JWT generation (`create_access_token`) using `PyJWT`.
-- **Middleware (`middleware/`)**: Provides request instrumentation through custom HTTP middleware (`RequestLoggingMiddleware`) for tracing request execution durations (`X-Process-Time` header) and registers `CORSMiddleware` for cross-origin domain access control.
+- **Middleware & Logging (`middleware.py`, `logger.py`)**: Configures standard stdout logging via `logging` (`setup_logger`) and custom HTTP request logging middleware (`RequestLoggingMiddleware`) that intercepts all requests. Captures HTTP method, URL path, HTTP status code, execution duration in milliseconds using monotonic timing (`time.perf_counter()`), and unique request correlation IDs (`X-Request-ID`) while strictly excluding sensitive headers, tokens, credentials, and request/response bodies. Also registers `CORSMiddleware` for cross-origin domain access control.
 - **Database (`database.py`)**: Configures the SQLAlchemy database engine, `SessionLocal` factory, declarative base, and the `get_db` generator dependency driven by application settings.
 - **Models (`models/`)**: Defines SQLAlchemy ORM models (`User`, `Task`) representing database tables, column constraints, and foreign key relationships (`user_id = Column(Integer, ForeignKey("users.id"))`) in PostgreSQL.
 - **Migrations (`alembic/`)**: Manages version-controlled database schema changes (DDL) using Alembic, dynamically bound to `Base.metadata` and environment configuration.
@@ -47,16 +47,15 @@ fastapi-internship/
 │   ├── auth_exceptions.py     # Auth domain exceptions (UserAlreadyExistsError)
 │   ├── external_exceptions.py # External domain exceptions (UpstreamNotFoundError, UpstreamTimeoutError, UpstreamApiError)
 │   └── task_exceptions.py     # Task domain exceptions (TaskNotFoundError, TaskForbiddenError, etc.)
+├── logger.py            # Centralized logging configuration using Python standard logging
 ├── main.py              # App initialization, CORS, middleware, routers & error handlers
-├── middleware/
-│   ├── __init__.py
-│   └── logging.py       # Custom request processing time & execution logging middleware
+├── middleware.py        # Custom request logging middleware with time.perf_counter() & X-Request-ID
 ├── models/
 │   ├── __init__.py
 │   ├── task.py          # SQLAlchemy ORM task model with user_id ForeignKey & relationship
 │   └── user.py          # SQLAlchemy ORM user model with tasks relationship
 ├── pytest.ini           # Pytest runner, testpaths, and coverage configuration
-├── README.md            # Architecture, database setup, and API specifications
+├── README.md            # Architecture, database setup, request logging, and API specifications
 ├── requirements.txt     # Application dependencies (FastAPI, pydantic-settings, PyJWT, httpx, pytest, etc.)
 ├── routers/
 │   ├── __init__.py
@@ -128,6 +127,65 @@ Database connection strings, CORS origins, and cryptographic secrets are loaded 
      ```
 
 > **Security Note:** `.env` contains local secrets and database credentials and is excluded from source control via `.gitignore`. Never commit raw `SECRET_KEY` values to public repositories.
+
+### Adding Trusted CORS Origins
+
+To grant a new frontend client or external domain access to the API:
+
+1. Open `.env` in the project root.
+2. Append the new origin URL (including protocol and port, without trailing slash) to the `ALLOWED_ORIGINS` JSON array:
+
+   ```env
+   ALLOWED_ORIGINS=["http://localhost:3000","[http://127.0.0.1:8000](http://127.0.0.1:8000)","[https://your-app-domain.com](https://your-app-domain.com)"]
+   ```
+
+---
+
+## Request Logging & Observability
+
+The application includes production-friendly request logging middleware (`RequestLoggingMiddleware`) and a centralized logger (`logger.py`) to provide real-time visibility into API performance and endpoint usage.
+
+### Logging Features
+
+- **Monotonic Duration Measurement**: Uses `time.perf_counter()` to calculate total request execution duration accurately in milliseconds without risk of system clock adjustments skewing results.
+- **Request Correlation IDs (`X-Request-ID`)**: Reuses an incoming `X-Request-ID` HTTP header or generates a unique UUID4 per request, attaching it to both stdout log entries and outgoing response headers for end-to-end request tracing.
+- **Safe Logging Practices**: Captures high-level request metadata (method, URL path, HTTP status code, duration, request ID). Request/response bodies, passwords, tokens, and `Authorization` headers are explicitly excluded to prevent sensitive data exposure.
+
+### Running Application with Logs Enabled
+
+Start the server using Uvicorn:
+
+```cmd
+uvicorn main:app --reload
+```
+
+### Representative Log Output Examples
+
+- **Successful Request (`200 OK`):**
+
+  ```text
+  2026-08-28 00:05:12,345 - fastapi_app - INFO - [8a0519fd-e987-4de5-8366-af626b47fc51] GET /health Status: 200 - Duration: 1.45ms
+  ```
+
+- **Error Response (`404 Not Found`):**
+  ```text
+  2026-08-28 00:05:20,112 - fastapi_app - INFO - [f8e7d6c5-b4a3-2109-dcba-0987654321ba] GET /tasks/999999 Status: 404 - Duration: 3.82ms
+  ```
+
+### Troubleshooting Example
+
+Consider the following production log line generated during operation:
+
+```text
+2026-08-28 00:10:45,892 - fastapi_app - INFO - [c9bf9e57-1685-4c89-bafb-ff5af830be8a] GET /external/posts/1 Status: 504 - Duration: 5004.12ms
+```
+
+**Field-by-Field Diagnostic Analysis:**
+
+1. **`[c9bf9e57-1685-4c89-bafb-ff5af830be8a]` (Correlation ID)**: Uniquely identifies this specific HTTP transaction. A developer can copy this ID from a client report or header and search log monitoring tools (e.g., Datadog, CloudWatch) to isolate all events associated with this single call.
+2. **`GET /external/posts/1` (Method & Path)**: Pinpoints the specific endpoint invoked by the client.
+3. **`Status: 504` (HTTP Status Code)**: Indicates a `504 Gateway Timeout`, confirming the issue was caused by an upstream service failure rather than an internal application crash or syntax error.
+4. **`Duration: 5004.12ms` (Elapsed Duration)**: Highlights that the execution time reached the 5.0-second timeout limit set in `httpx.AsyncClient`. This immediately proves latency was due to third-party network unresponsiveness rather than local database or server resource starvation.
 
 ---
 
@@ -320,7 +378,7 @@ Run `pytest` in your terminal. Confirm that all integration tests pass covering 
 
 1. Open `http://127.0.0.1:8000/docs`.
 2. **Verify Environment Settings & Middleware Headers:**
-   - Submit any request and inspect response headers to confirm `X-Process-Time` measurement header is returned.
+   - Submit any request and inspect response headers to confirm `X-Request-ID` header is returned.
 3. **Verify Protected Task Authorization & Ownership (`POST /tasks`, `GET /tasks`):**
    - Execute `GET /tasks` without authorization -> Confirm `401 Unauthorized`.
    - Register User A (`POST /auth/register`), obtain token via `POST /auth/token`, click **Authorize**, and submit `POST /tasks`. Confirm `201 Created` with `user_id = 1`.
@@ -330,13 +388,11 @@ Run `pytest` in your terminal. Confirm that all integration tests pass covering 
 
 ## Definition of Done
 
-- [x] Defined `user_id` foreign key relationship between `User` and `Task` ORM models.
-- [x] Created and applied Alembic migration `a9f3b82c10d4_add_user_id_to_tasks.py` enforcing database foreign key constraints.
-- [x] Refactored environment configuration management to use `pydantic-settings` (`Settings` class in `config.py`).
-- [x] Implemented custom `TaskForbiddenError` and mapped it to a standardized `403 Forbidden` error payload.
-- [x] Secured all `/tasks` endpoints (`GET`, `POST`, `PUT`, `DELETE`) with `get_current_user` dependency for ownership-based authorization.
-- [x] Configured `CORSMiddleware` and custom `RequestLoggingMiddleware` for request execution timing (`X-Process-Time`) and tracing headers.
-- [x] Refactored `task_service.py` to scope all database queries and mutations by `user_id`.
-- [x] Updated Pydantic `TaskResponse` schema to include `user_id` output fields.
-- [x] Extended Pytest suite in `tests/test_tasks.py` with multi-user isolation tests verifying `403 Forbidden` enforcement on unauthorized cross-user modifications.
-- [x] Passed 100% of integration tests with full test isolation on an SQLite in-memory database.
+- [x] Configured central logging module (`logger.py`) using Python standard `logging` library directing formatted output to `sys.stdout`.
+- [x] Implemented custom HTTP request logging middleware (`middleware.py`) calculating duration using `time.perf_counter()`.
+- [x] Added `X-Request-ID` correlation ID tracking across log messages and HTTP response headers.
+- [x] Registered request logging middleware in `main.py` without breaking existing route execution or JSON payload formats.
+- [x] Ensured safe logging practices by excluding credentials, tokens, authorization headers, and request bodies.
+- [x] Verified complete request log completion lines across successful (`200 OK`) and failing (`404 Not Found`) HTTP calls.
+- [x] Updated project documentation with representative log line output and field-by-field troubleshooting diagnostics.
+- [x] Passed 100% of automated integration tests with Pytest.

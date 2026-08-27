@@ -16,8 +16,11 @@ from exceptions.external_exceptions import (
 
 from routers import auth, external, item_router, task_router
 from schemas.error import ErrorResponse
+from middleware import RequestLoggingMiddleware
 
 app = FastAPI()
+app.add_middleware(RequestLoggingMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_CORS_ORIGINS,
