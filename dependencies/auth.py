@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models.user import User
 from schemas.token import TokenData
-from utils.security import ALGORITHM, SECRET_KEY
+
+from config import settings
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
 
@@ -21,7 +22,9 @@ def get_current_user(
     )
 
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+        )
         email: str | None = payload.get("sub")
 
         if email is None:

@@ -2,6 +2,8 @@ from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
+from fastapi.middleware.cors import CORSMiddleware
+from config import settings
 
 from exceptions.auth_exceptions import UserAlreadyExistsError
 from exceptions.task_exceptions import TaskAlreadyExistsError, TaskNotFoundError
@@ -11,10 +13,18 @@ from exceptions.external_exceptions import (
     UpstreamTimeoutError,
 )
 
+
 from routers import auth, external, item_router, task_router
 from schemas.error import ErrorResponse
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.ALLOWED_CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(task_router.router)
 app.include_router(item_router.router)
@@ -60,11 +70,7 @@ async def valtidation_exception_handler(request: Request, exc: RequestValidation
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content=jsonable_encoder(error_payload),
-    )
-
-
-# WHY jsonable_encoder:
-# Converts complex Pydantic error objects into JSON-safe Python primitives to prevent serialization crashes (500 Internal Server Error).
+    )  # WHY jsonable_encoder: Converts complex Pydantic error objects into JSON-safe Python primitives to prevent serialization crashes (500 Internal Server Error).
 
 
 @app.exception_handler(UserAlreadyExistsError)
