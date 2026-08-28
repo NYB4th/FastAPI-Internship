@@ -2,7 +2,7 @@ from fastapi import APIRouter, Path, status
 from schemas.external import PostResponse
 from services.external_service import get_external_post
 
-router = APIRouter(prefix="/external", tags=["External API"])
+router = APIRouter(prefix="/external", tags=["External Services"])
 
 
 @router.get(

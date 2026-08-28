@@ -12,9 +12,7 @@ def get_task_by_id(task_id: int, db: Session):
 
 
 def update_task(task_id: int, task_in: TaskUpdate, db: Session):
-    task = db.query(Task).filter(Task.id == task_id).first()
-    if not task:
-        raise TaskNotFoundError(task_id)
+    task = get_task_by_id(task_id, db)
 
     update_data = task_in.model_dump(exclude_unset=True)
     if "title" in update_data:
@@ -48,7 +46,6 @@ def create_task(task_in: TaskCreate, db: Session):
 
     if existing_task:
         raise TaskAlreadyExistsError(task_in.title)
-    task_data = task_in.model_dump()
 
     new_task = Task(**task_in.model_dump())
 
@@ -60,9 +57,7 @@ def create_task(task_in: TaskCreate, db: Session):
 
 
 def delete_task(task_id: int, db: Session):
-    task = db.query(Task).filter(Task.id == task_id).first()
-    if not task:
-        raise TaskNotFoundError(task_id)
+    task = get_task_by_id(task_id, db)
 
     db.delete(task)
     db.commit()

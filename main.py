@@ -18,7 +18,25 @@ from routers import auth, external, item_router, task_router
 from schemas.error import ErrorResponse
 from middleware import RequestLoggingMiddleware
 
-app = FastAPI()
+app = FastAPI(
+    title="FastAPI Task & Auth Management API",
+    description="A RESTful backend service for user authentication, task management, and third-party integrations.",
+    version="1.0.0",
+    contact={
+        "name": "ALI",
+        "email": "aliahmedadee@gmail.com",
+    },
+    openapi_tags=[
+        {"name": "Health", "description": "System health and availability checks."},
+        {
+            "name": "Authentication",
+            "description": "User registration and session management.",
+        },
+        {"name": "Tasks", "description": "CRUD operations for user tasks."},
+        {"name": "Items", "description": "Item management operations."},
+        {"name": "External Services", "description": "Third-party API integrations."},
+    ],
+)
 app.add_middleware(RequestLoggingMiddleware)
 
 app.add_middleware(
@@ -35,12 +53,12 @@ app.include_router(auth.router)
 app.include_router(external.router)
 
 
-@app.get("/")
+@app.get("/", tags=["Health"])
 def read_root():
     return {"message": "Welcome to FastApi internship project"}
 
 
-@app.get("/health")
+@app.get("/health", tags=["Health"])
 def read_health():
     return {"status": "ok"}
 
