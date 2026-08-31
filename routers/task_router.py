@@ -1,12 +1,13 @@
-from fastapi import APIRouter, status, Query, Depends
+from typing import cast
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from database import get_db
 from dependencies.auth import get_current_user
 from models.user import User
-from schemas.task import TaskRead, TaskCreate, TaskUpdate
-from services import task_service
 from schemas.error import ErrorResponse
+from schemas.task import TaskCreate, TaskRead, TaskUpdate
+from services import task_service
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
@@ -16,7 +17,7 @@ router = APIRouter(prefix="/tasks", tags=["Tasks"])
     response_model=TaskRead,
     status_code=status.HTTP_201_CREATED,
     summary="Create a new task",
-    description="Creates a new task assigned to the authenticated user.",
+    description="Creates a new task.",
     response_description="Task created successfully.",
     responses={
         401: {"description": "Missing or invalid authentication token."},
@@ -31,7 +32,6 @@ def create_task(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-
     return task_service.create_task(task_in, db)
 
 
@@ -47,6 +47,7 @@ def get_all(
     limit: int = Query(10, ge=1, le=100, description="Max number of tasks to return"),
     offset: int = Query(0, ge=0, description="Number of tasks to skip"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     return task_service.get_all_tasks(db, limit=limit, offset=offset)
 
@@ -60,7 +61,11 @@ def get_all(
     response_description="Task details retrieved successfully.",
     responses={404: {"model": ErrorResponse, "description": "Task not found."}},
 )
-def get_by_id(task_id: int, db: Session = Depends(get_db)):
+def get_by_id(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     return task_service.get_task_by_id(task_id, db)
 
 

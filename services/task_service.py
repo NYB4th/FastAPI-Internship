@@ -1,7 +1,10 @@
-from schemas.task import TaskCreate, TaskUpdate
-from exceptions.task_exceptions import TaskAlreadyExistsError, TaskNotFoundError
-from sqlalchemy.orm import Session
+from exceptions.task_exceptions import (
+    TaskAlreadyExistsError,
+    TaskNotFoundError,
+)
 from models.task import Task
+from schemas.task import TaskCreate, TaskUpdate
+from sqlalchemy.orm import Session
 
 
 def get_task_by_id(task_id: int, db: Session):
@@ -15,7 +18,7 @@ def update_task(task_id: int, task_in: TaskUpdate, db: Session):
     task = get_task_by_id(task_id, db)
 
     update_data = task_in.model_dump(exclude_unset=True)
-    if "title" in update_data:
+    if "title" in update_data and update_data["title"] is not None:
         clean_title = update_data["title"].strip()
         existing_task = (
             db.query(Task)
@@ -39,13 +42,11 @@ def get_all_tasks(db: Session, limit: int = 10, offset: int = 0):
 
 
 def create_task(task_in: TaskCreate, db: Session):
-
-    existing_task = (
-        db.query(Task).filter(Task.title.ilike(task_in.title.strip())).first()
-    )
+    clean_title = task_in.title.strip()
+    existing_task = db.query(Task).filter(Task.title.ilike(clean_title)).first()
 
     if existing_task:
-        raise TaskAlreadyExistsError(task_in.title)
+        raise TaskAlreadyExistsError(clean_title)
 
     new_task = Task(**task_in.model_dump())
 
