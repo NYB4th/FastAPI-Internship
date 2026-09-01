@@ -1,23 +1,52 @@
-# FastAPI Internship Project - Day 16
+# FastAPI Internship Project - Day 17
 
-A modular, enterprise-structured FastAPI application featuring secure user registration, JWT-based authentication, OAuth2 password flow, dependency-driven route authorization, relational database CRUD operations, database-level query pagination, schema version control using Alembic, centralized environment configuration via `pydantic-settings`, custom request logging middleware with monotonic timing (`time.perf_counter()`) and correlation IDs (`X-Request-ID`), CORS controls, asynchronous external API integration with `httpx`, a fully automated integration testing suite built with Pytest, and comprehensive OpenAPI 3.0 schema metadata with interactive Swagger UI documentation (`/docs`). The system manages PostgreSQL persistent state via SQLAlchemy ORM in production, uses an isolated in-memory SQLite database for test suites, enforces strict task validation rules, and eliminates code duplication across service layers.
+A modular, enterprise-structured FastAPI application featuring secure user registration, JWT-based authentication, OAuth2 password flow, dependency-driven route authorization, relational database CRUD operations, database-level query pagination, schema version control using Alembic, centralized environment configuration via `pydantic-settings`, custom request logging middleware with monotonic timing (`time.perf_counter()`) and correlation IDs (`X-Request-ID`), CORS controls, asynchronous external API integration with `httpx`, a fully automated integration testing suite built with Pytest, and comprehensive OpenAPI 3.0 schema metadata with interactive Swagger UI documentation (`/docs`).
 
-## Architecture Overview
+---
 
-This project uses a layered architecture to keep HTTP routing, business logic, security utilities, external API integrations, custom middleware, data persistence, database migrations, interactive documentation, and automated testing cleanly separated:
+## Architecture Overview & Request Flow
 
-- **Routers (`routers/`)**: Handles incoming HTTP requests, route binding, query parameter validation (`limit`/`offset`), form data parsing (`OAuth2PasswordRequestForm`), payload parsing, path validation (`post_id >= 1`), standard response status codes (`201 Created`, `200 OK`, `204 No Content`, `401 Unauthorized`, `404 Not Found`, `409 Conflict`, `502 Bad Gateway`, `504 Gateway Timeout`, `422 Unprocessable Entity`), and explicit OpenAPI tag declarations. All task operations are strictly protected via user authentication dependencies.
-- **Dependencies (`dependencies/`)**: Implements reusable request authorization dependencies (`get_current_user`) using `OAuth2PasswordBearer` to extract, decode, and validate incoming Bearer tokens across protected routes, returning the authenticated `User` model context.
-- **Services (`services/`)**: Implements core business logic, user uniqueness checks, credential authentication (`authenticate_user`), password hashing orchestration, case-insensitive task duplicate title checks, centralized resource retrieval helpers (`get_task_by_id` reused across update/delete methods to eliminate duplicated lookup logic), database-level pagination, title whitespace trimming, and non-blocking asynchronous HTTP calls (`httpx.AsyncClient`) with bounded 5.0-second timeouts.
-- **Utils & Config (`utils/`, `config.py`)**: Manages type-safe application settings via `pydantic-settings` (`Settings`), and enforces security logic such as password hashing and verification using `pwdlib` (with explicit `BcryptHasher`), alongside JWT generation (`create_access_token`) using `PyJWT`.
-- **Middleware & Logging (`middleware.py`, `logger.py`)**: Configures standard stdout logging via `logging` (`setup_logger`) and custom HTTP request logging middleware (`RequestLoggingMiddleware`) that intercepts all requests. Captures HTTP method, URL path, HTTP status code, execution duration in milliseconds using monotonic timing (`time.perf_counter()`), and unique request correlation IDs (`X-Request-ID`) while strictly excluding sensitive headers, tokens, credentials, and request/response bodies. Also registers `CORSMiddleware` for cross-origin domain access control.
-- **Database (`database.py`)**: Configures the SQLAlchemy database engine, `SessionLocal` factory, declarative base, and the `get_db` generator dependency driven by application settings.
-- **Models (`models/`)**: Defines SQLAlchemy ORM models (`User`, `Task`) representing database tables in PostgreSQL.
-- **Migrations (`alembic/`)**: Manages version-controlled database schema changes (DDL) using Alembic, dynamically bound to `Base.metadata` and environment configuration.
-- **Exceptions (`exceptions/`)**: Contains custom domain exceptions for auth (`UserAlreadyExistsError`), tasks (`TaskNotFoundError`, `TaskAlreadyExistsError`), and upstream external services (`UpstreamNotFoundError`, `UpstreamTimeoutError`, `UpstreamApiError`) for framework-agnostic error translation.
-- **Schemas (`schemas/`)**: Defines strict Pydantic models for API request validation (`UserCreate`, `TaskCreate`, `TaskUpdate`), response serialization (`UserResponse`, `TaskRead`, `PostResponse` with camelCase `alias` mappings), OAuth2 tokens (`Token`, `TokenData`), and error payload contracts (`ErrorResponse`). Includes field-level validation bounds, titles, descriptions, and realistic JSON schema examples (`json_schema_extra`).
-- **Global Handlers & OpenAPI Metadata (`main.py`)**: Initializes FastAPI with global application metadata (title, description, version, contact information, tag metadata list `openapi_tags`), registers CORS middleware, request logging middleware, router mounting without redundant tag parameters to prevent duplicate entries in Swagger UI, and global exception handlers converting domain exceptions into standardized JSON error payloads.
-- **Automated Tests (`tests/`)**: Contains modular integration test suites (`test_health.py`, `test_auth.py`, `test_tasks.py`, `test_external.py`, `test_config_cors.py`) powered by Pytest, `TestClient`, network mocking (`AsyncMock`), and a shared test infrastructure (`conftest.py`) enforcing complete database isolation and full registration-to-authenticated-task workflow validation.
+This project uses a layered architecture to keep HTTP routing, business logic, security utilities, custom middleware, data persistence, and automated testing cleanly separated:
+
+- **Routers (`routers/`)**: Handles incoming HTTP requests, route binding, path validation, and standard response status codes.
+- **Dependencies (`dependencies/`)**: Implements reusable request authorization dependencies (`get_current_user`) using `OAuth2PasswordBearer` to validate incoming Bearer tokens.
+- **Services (`services/`)**: Implements core business logic, user uniqueness checks, credential authentication, task duplicate checks, and pagination.
+- **Utils & Config (`utils/`, `config.py`)**: Manages environment settings via `pydantic-settings` (`Settings`) and security logic (password hashing via `pwdlib` and JWT generation via `PyJWT`).
+- **Middleware & Logging (`middleware.py`, `logger.py`)**: Configures custom request logging middleware (`RequestLoggingMiddleware`) capturing execution duration with `time.perf_counter()` and `X-Request-ID` correlation headers, alongside CORS controls.
+- **Database & Models (`database.py`, `models/`)**: Configures the SQLAlchemy database engine, session factory, and ORM models (`User`, `Task`) representing PostgreSQL tables.
+- **Migrations (`alembic/`)**: Manages version-controlled database schema changes using Alembic.
+- **Exceptions (`exceptions/`)**: Contains custom domain exceptions for auth and tasks for framework-agnostic error translation.
+- **Schemas (`schemas/`)**: Defines strict Pydantic models for request validation and response serialization.
+- **Automated Tests (`tests/`)**: Modular integration test suites powered by Pytest, `TestClient`, and SQLite in-memory isolation.
+
+### End-to-End HTTP Request Flow
+
+When a client sends a request (e.g., `POST /tasks`), it passes through these layers sequentially:
+
+```text
+[Client HTTP Request]
+       │
+       ▼
+ 1. RequestLoggingMiddleware  ──► Assigns X-Request-ID & starts execution timer
+       │
+       ▼
+ 2. CORSMiddleware            ──► Validates request origin against ALLOWED_CORS_ORIGINS
+       │
+       ▼
+ 3. Router Layer (routers/)   ──► Matches path /tasks, parses body via Pydantic schema
+       │
+       ▼
+ 4. Dependency (auth.py)      ──► Extracts & validates Bearer token to get User context
+       │
+       ▼
+ 5. Service Layer (services/) ──► Executes business logic & checks database constraints
+       │
+       ▼
+ 6. Database Layer (models/)  ──► SQLAlchemy ORM executes SQL statements via get_db session
+       │
+       ▼
+ 7. Response Handler          ──► Formats result into JSON schema & returns HTTP 201 Created
+```
 
 ---
 
@@ -27,7 +56,7 @@ This project uses a layered architecture to keep HTTP routing, business logic, s
 fastapi-internship/
 ├── .env                 # Environment configuration & security secrets (git-ignored)
 ├── .env.example         # Environment configuration template
-├── .gitignore           # Ignores venv/, .env, and build artifacts
+├── .gitignore           # Ignores venv/, .env, build artifacts, and test caches
 ├── alembic.ini          # Alembic CLI configuration file
 ├── alembic/             # Database migration environment
 │   ├── env.py           # Migration execution script with dynamic .env loading
@@ -102,18 +131,18 @@ The API includes comprehensive OpenAPI 3.0 specifications accessible interactive
    - Explicit application `title`, custom `description`, semantic `version="1.0.0"`, and `contact` maintainer information.
    - Structured `openapi_tags` definitions adding detailed section descriptions to top-level category headers in Swagger UI.
 2. **Tag Hierarchy & Disambiguation**:
-   - Each endpoint module declares its single authoritative tag within its `APIRouter` declaration (e.g., `tags=["Authentication"]` in `routers/auth.py`, `tags=["Tasks"]` in `routers/task_router.py`, `tags=["External Services"]` in `routers/external.py`).
-   - Routers are attached in `main.py` using `app.include_router(router)` without redundant `tags=[...]` parameters. This prevents tag concatenation visual bugs where endpoints appear duplicated across multiple UI headers.
+   - Each endpoint module declares its single authoritative tag within its `APIRouter` declaration (`tags=["Authentication"]`, `tags=["Tasks"]`, `tags=["External Services"]`).
+   - Routers are attached in `main.py` using `app.include_router(router)` without redundant `tags=[...]` parameters to prevent tag duplication bugs in Swagger UI.
 3. **Route Annotations & Documentation**:
    - Every route decorator includes explicit `summary`, `description`, `response_description`, and mapped status code response contracts (`responses={...}`).
 4. **Rich Schema Metadata & Examples**:
-   - Request and response models utilize `Field()` parameters defining `title`, `description`, `gt`/`ge`/`le` constraints, and concrete `json_schema_extra` example payloads to accelerate API integration.
+   - Request and response models utilize `Field()` parameters defining `title`, `description`, `gt`/`ge`/`le` constraints, and concrete `json_schema_extra` example payloads.
 
 ---
 
 ## Environment & Security Configuration
 
-Database connection strings, CORS origins, and cryptographic secrets are loaded dynamically at runtime using `pydantic-settings` from the environment `.env` file via `config.py`.
+Database connection strings, CORS origins, and cryptographic secrets are loaded dynamically at runtime using `pydantic-settings` from `.env` via `config.py`.
 
 1. **Environment Setup:**
    Copy `.env.example` to `.env`:
@@ -125,11 +154,12 @@ Database connection strings, CORS origins, and cryptographic secrets are loaded 
    Configure your `.env` variables:
 
    ```env
-   DATABASE_URL=postgresql://postgres:your_password@localhost:5432/fastapi_db
-   SECRET_KEY=09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7
+   DATABASE_URL=postgresql://username:password@localhost:5432/database_name
+   SECRET_KEY=your_super_secret_key_here
    ALGORITHM=HS256
    ACCESS_TOKEN_EXPIRE_MINUTES=30
-   ALLOWED_ORIGINS=["http://localhost:3000","[http://127.0.0.1:8000](http://127.0.0.1:8000)"]
+   ENVIRONMENT=development
+   ALLOWED_CORS_ORIGINS=["http://localhost:3000","[http://127.0.0.1:3000](http://127.0.0.1:3000)"]
    ```
 
 2. **Alembic Migration Commands:**
@@ -148,16 +178,76 @@ Database connection strings, CORS origins, and cryptographic secrets are loaded 
 
 > **Security Note:** `.env` contains local secrets and database credentials and is excluded from source control via `.gitignore`. Never commit raw `SECRET_KEY` values to public repositories.
 
+---
+
 ### Adding Trusted CORS Origins
 
 To grant a new frontend client or external domain access to the API:
 
 1. Open `.env` in the project root.
-2. Append the new origin URL (including protocol and port, without trailing slash) to the `ALLOWED_ORIGINS` JSON array:
+2. Append the new origin URL (including protocol and port, without trailing slash) to the `ALLOWED_CORS_ORIGINS` JSON array:
 
    ```env
-   ALLOWED_ORIGINS=["http://localhost:3000","[http://127.0.0.1:8000](http://127.0.0.1:8000)","[https://your-app-domain.com](https://your-app-domain.com)"]
+   ALLOWED_CORS_ORIGINS=["http://localhost:3000","[http://127.0.0.1:3000](http://127.0.0.1:3000)","[https://your-app-domain.com](https://your-app-domain.com)"]
    ```
+
+---
+
+## Prerequisites & Setup Guide
+
+### 1. Prerequisites
+
+- Python 3.10+
+- PostgreSQL database running locally
+
+### 2. Environment Setup
+
+Activate your virtual environment and install dependencies:
+
+```cmd
+venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+Create your local environment file by copying the template:
+
+```cmd
+copy .env.example .env
+```
+
+_Note: Update `.env` with your local PostgreSQL password and secret keys._
+
+### 3. Database Migrations
+
+Run Alembic migrations to build required database tables (`users`, `tasks`):
+
+```cmd
+alembic upgrade head
+```
+
+Verify current migration revision status:
+
+```cmd
+alembic current
+```
+
+### 4. Application Startup
+
+Start the FastAPI server using Uvicorn:
+
+```cmd
+uvicorn main:app --reload
+```
+
+The interactive Swagger API documentation will be available at `http://127.0.0.1:8000/docs`.
+
+### 5. Execute Automated Tests
+
+Run the integration test suite using the isolated in-memory SQLite database:
+
+```cmd
+pytest -v --cov
+```
 
 ---
 
@@ -178,6 +268,8 @@ Start the server using Uvicorn:
 ```cmd
 uvicorn main:app --reload
 ```
+
+---
 
 ### Representative Log Output Examples
 
@@ -235,11 +327,24 @@ All error responses across the API follow a uniform JSON contract defined in `sc
 
 ---
 
-## API Request & Response Examples
+## Core API Request & Response Examples
 
-### 1. Register New User (`POST /auth/register`)
+### 1. System Health Check (`GET /health`)
 
-- **Request Body:**
+- **Headers:** None
+- **Request Body:** None
+- **Response (`200 OK`):**
+
+```json
+{
+  "status": "healthy"
+}
+```
+
+### 2. User Registration (`POST /auth/register`)
+
+- **Headers:** `Content-Type: application/json`
+- **Request Body (JSON):**
 
 ```json
 {
@@ -257,9 +362,10 @@ All error responses across the API follow a uniform JSON contract defined in `sc
 }
 ```
 
-### 2. Obtain Access Token (`POST /auth/token`)
+### 3. Obtain Access Token (`POST /auth/token`)
 
-- **Request Body (`application/x-www-form-urlencoded`):**
+- **Headers:** `Content-Type: application/x-www-form-urlencoded`
+- **Request Body (Form Data):**
 
 ```text
 username=user@example.com&password=securepassword123
@@ -274,15 +380,17 @@ username=user@example.com&password=securepassword123
 }
 ```
 
-### 3. Create Task - Protected (`POST /tasks`)
+### 4. Create Protected Task (`POST /tasks`)
 
-- **Header Required:** `Authorization: Bearer <access_token>`
-- **Request Body:**
+- **Headers:**
+  - `Authorization: Bearer <access_token>`
+  - `Content-Type: application/json`
+- **Request Body (JSON):**
 
 ```json
 {
-  "title": "Integration Test Task",
-  "description": "Testing authenticated CRUD flow",
+  "title": "Complete Day 17 Handover",
+  "description": "Document API architecture and setup workflow",
   "priority": 1
 }
 ```
@@ -292,82 +400,43 @@ username=user@example.com&password=securepassword123
 ```json
 {
   "id": 1,
-  "title": "Integration Test Task",
-  "description": "Testing authenticated CRUD flow",
+  "title": "Complete Day 17 Handover",
+  "description": "Document API architecture and setup workflow",
   "priority": 1,
   "status": "pending",
   "is_completed": false
 }
 ```
 
-### 4. Unauthenticated Task Access Blocked (`GET /tasks`)
-
-- **Header:** None
-- **Response (`401 Unauthorized`):**
-
-```json
-{
-  "detail": "Not authenticated"
-}
-```
-
 ---
 
-## API Endpoints
+## Live Technical Demo Script
 
-| Method   | Endpoint                    | Tag Category      | Security           | Success          | Error Codes                | Description                                                |
-| :------- | :-------------------------- | :---------------- | :----------------- | :--------------- | :------------------------- | :--------------------------------------------------------- |
-| `GET`    | `/`                         | Health            | Public             | `200 OK`         | —                          | Root welcome message payload                               |
-| `GET`    | `/health`                   | Health            | Public             | `200 OK`         | —                          | System availability and health check                       |
-| `POST`   | `/auth/register`            | Authentication    | Public             | `201 Created`    | `409`, `422`               | Register user account with password hashing                |
-| `POST`   | `/auth/token`               | Authentication    | Public (Form Data) | `200 OK`         | `401`, `422`               | Authenticate credentials and issue OAuth2 Bearer JWT token |
-| `POST`   | `/tasks`                    | Tasks             | **Bearer Token**   | `201 Created`    | `401`, `409`, `422`        | Create a new task                                          |
-| `GET`    | `/tasks`                    | Tasks             | **Bearer Token**   | `200 OK`         | `401`, `422`               | Retrieve a paginated list of tasks                         |
-| `GET`    | `/tasks/{task_id}`          | Tasks             | **Bearer Token**   | `200 OK`         | `401`, `404`               | Retrieve details of a single task by ID                    |
-| `PUT`    | `/tasks/{task_id}`          | Tasks             | **Bearer Token**   | `200 OK`         | `401`, `404`, `409`, `422` | Update details or completion status of an existing task    |
-| `DELETE` | `/tasks/{task_id}`          | Tasks             | **Bearer Token**   | `204 No Content` | `401`, `404`               | Permanently delete a task by ID                            |
-| `GET`    | `/items`                    | Items             | Public             | `200 OK`         | —                          | Retrieve list of items                                     |
-| `GET`    | `/items/{item_id}`          | Items             | Public             | `200 OK`         | `404`                      | Retrieve single item by ID                                 |
-| `GET`    | `/external/posts/{post_id}` | External Services | Public             | `200 OK`         | `404`, `502`, `504`, `422` | Asynchronously fetch external post with 5s timeout         |
+Follow this 5-step sequence in Swagger UI (`http://127.0.0.1:8000/docs`) to demonstrate the end-to-end user workflow:
 
----
+1. **Verify System Health (`GET /health`)**
+   - **Action:** Click "Try it out" and execute `GET /health`.
+   - **Expected Output:** Status `200 OK` with `{"status": "healthy"}`.
+   - **Talking Point:** Proves the application server is up, running, and accepting HTTP requests.
 
-## Prerequisites & Setup
+2. **Register a User Account (`POST /auth/register`)**
+   - **Action:** Submit JSON body with `email` and `password`.
+   - **Expected Output:** Status `201 Created` with the new user `id` and `email`.
+   - **Talking Point:** Shows account creation where passwords are encrypted using Bcrypt before saving to PostgreSQL.
 
-1. **Prerequisites:**
-   - Python 3.10+
-   - PostgreSQL installed and running locally.
+3. **Authenticate & Obtain Token (`POST /auth/token`)**
+   - **Action:** Enter email into `username` and password into `password` (form-data format) and execute.
+   - **Expected Output:** Status `200 OK` returning a signed JWT `access_token`.
+   - **Talking Point:** Demonstrates OAuth2 password flow issuing short-lived access tokens.
 
-2. **Install Dependencies:**
+4. **Authorize Swagger UI Session**
+   - **Action:** Copy the `access_token` string, click the **Authorize** lock button at the top of Swagger UI, paste the token, and authorize.
+   - **Talking Point:** Attaches the Bearer token header to all subsequent requests across the documentation page.
 
-   ```cmd
-   venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
-
-3. **Configure Environment Variables:**
-   Ensure `.env` exists in the project root containing `DATABASE_URL`, `SECRET_KEY`, `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, and `ALLOWED_ORIGINS`.
-
-4. **Apply Database Migrations:**
-
-   ```cmd
-   alembic upgrade head
-   ```
-
-5. **Run Application:**
-
-   ```cmd
-   uvicorn main:app --reload
-   ```
-
-6. **Run Automated Tests:**
-
-   ```cmd
-   pytest -v --cov
-   ```
-
-7. **Access Interactive Docs:**
-   Navigate to `http://127.0.0.1:8000/docs` or `http://127.0.0.1:8000/redoc`
+5. **Create Protected Task (`POST /tasks`)**
+   - **Action:** Submit task JSON body containing `title`, `description`, and `priority`.
+   - **Expected Output:** Status `201 Created` with the created task details.
+   - **Talking Point:** Demonstrates protected route authorization where the `get_current_user` dependency decodes the token and permits task creation.
 
 ---
 
@@ -391,26 +460,68 @@ Run `pytest -v --cov` in your terminal. Confirm that all integration tests pass 
 
 ---
 
+## API Endpoints
+
+| Method   | Endpoint                    | Tag Category      | Security           | Success          | Error Codes                | Description                                                |
+| :------- | :-------------------------- | :---------------- | :----------------- | :--------------- | :------------------------- | :--------------------------------------------------------- |
+| `GET`    | `/`                         | Health            | Public             | `200 OK`         | —                          | Root welcome message payload                               |
+| `GET`    | `/health`                   | Health            | Public             | `200 OK`         | —                          | System availability and health check                       |
+| `POST`   | `/auth/register`            | Authentication    | Public             | `201 Created`    | `409`, `422`               | Register user account with password hashing                |
+| `POST`   | `/auth/token`               | Authentication    | Public (Form Data) | `200 OK`         | `401`, `422`               | Authenticate credentials and issue OAuth2 Bearer JWT token |
+| `POST`   | `/tasks`                    | Tasks             | **Bearer Token**   | `201 Created`    | `401`, `409`, `422`        | Create a new task                                          |
+| `GET`    | `/tasks`                    | Tasks             | **Bearer Token**   | `200 OK`         | `401`, `422`               | Retrieve a paginated list of tasks                         |
+| `GET`    | `/tasks/{task_id}`          | Tasks             | **Bearer Token**   | `200 OK`         | `401`, `404`               | Retrieve details of a single task by ID                    |
+| `PUT`    | `/tasks/{task_id}`          | Tasks             | **Bearer Token**   | `200 OK`         | `401`, `404`, `409`, `422` | Update details or completion status of an existing task    |
+| `DELETE` | `/tasks/{task_id}`          | Tasks             | **Bearer Token**   | `204 No Content` | `401`, `404`               | Permanently delete a task by ID                            |
+| `GET`    | `/items`                    | Items             | Public             | `200 OK`         | —                          | Retrieve list of items                                     |
+| `GET`    | `/items/{item_id}`          | Items             | Public             | `200 OK`         | `404`                      | Retrieve single item by ID                                 |
+| `GET`    | `/external/posts/{post_id}` | External Services | Public             | `200 OK`         | `404`, `502`, `504`, `422` | Asynchronously fetch external post with 5s timeout         |
+
+---
+
 ## Remaining Issues Checklist
 
-### Unresolved Defects
+### Unresolved Issues & Cleanup
 
-- None. All high-impact defects blocking the complete registration-to-authenticated-task workflow have been resolved and verified.
+- [ ] **Fix and standardize the Items module:** The current focus was on getting the Tasks module working, so Items still uses basic in-memory dictionaries. Refactor it to use PostgreSQL, SQLAlchemy models, Alembic migrations, JWT authentication (`get_current_user`), and the same standardized error format used elsewhere in the project.
 
-### Optional Improvements & Future Enhancements
+- [ ] **Make all files consistent:** The Tasks domain already has proper logging, validation, custom exceptions, and integration tests, but the Items and External modules do not fully follow the same standard. Review the project files and bring these modules up to a more consistent level.
 
-- [ ] Add user ownership to tasks (e.g., `user_id` foreign key on `Task` model) if multi-tenant data isolation per user is required in future releases.
-- [ ] Implement refresh token rotation to extend session validity beyond single access tokens.
-- [ ] Add rate limiting middleware to prevent brute-force login attempts on `/auth/token`.
+### Future Enhancements & Practice
+
+- [ ] **Give tasks a proper purpose & user isolation:** Add a `user_id` foreign key to the `Task` model so users only see and manage their own tasks instead of sharing tasks globally. Add more realistic fields such as due dates and priority levels.
+
+- [ ] **Attempt frontend integration:** Practice backend integration with an existing frontend application instead of relying only on Swagger UI for testing the API.
+
+- [ ] **Apply industry-standard techniques:** Add practical improvements such as simple rate limiting on login and registration routes to help block repetitive or abusive requests.
 
 ---
 
 ## Definition of Done
 
-- [x] Verified full registration-to-authenticated-task workflow test (`test_complete_task_lifecycle`) in `tests/test_tasks.py`.
-- [x] Resolved high-impact defect: removed obsolete `user_id` checks and parameters in `task_service.py` to prevent runtime errors.
-- [x] Added `None`-safety handling for `title` updates in `task_service.py`.
-- [x] Expanded test suite with pagination, duplicate title conflict checks (409), and unauthenticated route protection (401).
-- [x] Ran full test suite via `pytest -v --cov` with 100% passing tests.
-- [x] Updated `README.md` to reflect current Day 16 architecture, endpoints, and test instructions.
-- [x] Documented remaining-issues checklist separating unresolved defects from optional enhancements.
+- [x] Verified the full registration-to-authenticated-task workflow through the automated integration test suite.
+- [x] Verified database isolation using the in-memory SQLite test database and FastAPI dependency overrides.
+- [x] Verified authentication, protected task routes, pagination, duplicate title conflict handling (409), and unauthenticated protection (401).
+- [x] Verified mocked external service integration covering success, 404 Not Found, and 504 Timeout scenarios.
+- [x] Verified OpenAPI metadata, Swagger UI documentation, request logging, correlation IDs, and CORS configuration.
+- [x] Updated `README.md` to reflect the current Day 17 architecture, setup workflow, API examples, verification workflow, and project status.
+
+---
+
+## Project Retrospective & Future Improvements
+
+### 1. Significant Technical Challenge
+
+During integration testing, database state from earlier tests persisted into subsequent runs. This caused intermittent failures such as duplicate email errors during registration tests (`409 Conflict`) and unexpected task pagination counts.
+
+### 2. Resolution Strategy
+
+Configured `tests/conftest.py` to use an isolated in-memory SQLite database (`sqlite:///:memory:`). Created a `db_session` Pytest fixture that executes `Base.metadata.create_all()` before each test and `Base.metadata.drop_all()` immediately after completion. Connected this fixture to FastAPI using `app.dependency_overrides[get_db]`.
+
+### 3. Key Learning Outcome
+
+Gained practical experience with FastAPI's `app.dependency_overrides` feature. It allowed us to swap the production PostgreSQL database connection with an isolated test session dynamically without modifying any core application logic in `routers/` or `services/`.
+
+### 4. Actionable Future Improvement
+
+Add explicit user ownership to tasks by defining a `user_id` foreign key on the `Task` ORM model. Currently, any authenticated user can view or modify tasks created by other users. Adding `user_id` filtering will enforce true multi-tenant data isolation per user account.
