@@ -5,6 +5,7 @@ def test_register_user(client):
     assert response.status_code == 201
     data = response.json()
     assert data["email"] == payload["email"]
+    assert data["role"] == "user"
     assert "id" in data
     assert "password" not in data
 

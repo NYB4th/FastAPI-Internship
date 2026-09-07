@@ -7,6 +7,28 @@ def get_auth_header(client, email="taskuser@example.com", password="password123"
     return {"Authorization": f"Bearer {token}"}
 
 
+def create_admin_user(
+    client, email="admin@example.com", password="adminpassword123", db_session=None
+):
+    """Registers a user and promotes them to admin directly in the database."""
+    reg_res = client.post("/auth/register", json={"email": email, "password": password})
+    user_id = reg_res.json()["id"]
+
+    if db_session:
+        from models.user import User
+
+        user = db_session.query(User).filter(User.id == user_id).first()
+        if user:
+            user.role = "admin"
+            db_session.commit()
+
+    login_res = client.post(
+        "/auth/token", data={"username": email, "password": password}
+    )
+    token = login_res.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}, user_id
+
+
 def test_complete_task_lifecycle(client):
     headers = get_auth_header(client)
     task_payload = {
@@ -102,3 +124,106 @@ def test_unauthenticated_task_routes(client):
     assert client.get("/tasks/1").status_code == 401
     assert client.put("/tasks/1", json={"title": "Test"}).status_code == 401
     assert client.delete("/tasks/1").status_code == 401
+
+
+def test_task_includes_user_id(client):
+    headers = get_auth_header(client, email="ownercheck@example.com")
+    task_payload = {"title": "Check User ID Field", "priority": 1}
+
+    response = client.post("/tasks", json=task_payload, headers=headers)
+    assert response.status_code == 201
+    data = response.json()
+    assert "user_id" in data
+    assert isinstance(data["user_id"], int)
+
+
+def test_user_cannot_access_other_user_task(client):
+    user_a_headers = get_auth_header(client, email="usera@example.com")
+    user_b_headers = get_auth_header(client, email="userb@example.com")
+
+    create_res = client.post(
+        "/tasks",
+        json={"title": "User A Private Task", "priority": 1},
+        headers=user_a_headers,
+    )
+    task_id = create_res.json()["id"]
+
+    get_res = client.get(f"/tasks/{task_id}", headers=user_b_headers)
+    assert get_res.status_code == 404
+
+    put_res = client.put(
+        f"/tasks/{task_id}", json={"title": "Hacked Title"}, headers=user_b_headers
+    )
+    assert put_res.status_code == 404
+
+    delete_res = client.delete(f"/tasks/{task_id}", headers=user_b_headers)
+    assert delete_res.status_code == 404
+
+
+def test_get_all_tasks_filters_by_logged_in_user(client):
+    headers_a = get_auth_header(client, email="filter_a@example.com")
+    headers_b = get_auth_header(client, email="filter_b@example.com")
+
+    client.post(
+        "/tasks", json={"title": "Task User A", "priority": 1}, headers=headers_a
+    )
+    client.post(
+        "/tasks", json={"title": "Task User B", "priority": 1}, headers=headers_b
+    )
+
+    response_a = client.get("/tasks", headers=headers_a)
+    assert response_a.status_code == 200
+    tasks_a = response_a.json()
+    assert len(tasks_a) == 1
+    assert tasks_a[0]["title"] == "Task User A"
+
+
+def test_different_users_can_have_same_task_title(client):
+    headers_a = get_auth_header(client, email="same_title_a@example.com")
+    headers_b = get_auth_header(client, email="same_title_b@example.com")
+
+    payload = {"title": "Shared Task Title", "priority": 1}
+
+    res_a = client.post("/tasks", json=payload, headers=headers_a)
+    assert res_a.status_code == 201
+
+    res_b = client.post("/tasks", json=payload, headers=headers_b)
+    assert res_b.status_code == 201
+
+
+def test_regular_user_cannot_update_roles(client):
+    headers = get_auth_header(client, email="regular@example.com")
+    response = client.patch("/users/1/role", json={"role": "admin"}, headers=headers)
+    assert response.status_code == 403
+
+
+def test_admin_can_update_user_role_and_manage_tasks(client, db_session):
+
+    user_headers = get_auth_header(client, email="standard_user@example.com")
+    admin_headers, admin_id = create_admin_user(
+        client,
+        email="admin_user@example.com",
+        db_session=db_session,  # pyright: ignore[reportCallIssue]
+    )
+
+    create_res = client.post(
+        "/tasks", json={"title": "Standard Task", "priority": 1}, headers=user_headers
+    )
+    task_id = create_res.json()["id"]
+
+    get_res = client.get(f"/tasks/{task_id}", headers=admin_headers)
+    assert get_res.status_code == 200
+
+    put_res = client.put(
+        f"/tasks/{task_id}",
+        json={"title": "Admin Modified Task"},
+        headers=admin_headers,
+    )
+    assert put_res.status_code == 200
+    assert put_res.json()["title"] == "Admin Modified Task"
+
+    role_res = client.patch(
+        "/users/1/role", json={"role": "admin"}, headers=admin_headers
+    )
+    assert role_res.status_code == 200
+    assert role_res.json()["role"] == "admin"

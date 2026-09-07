@@ -46,4 +46,5 @@ class TaskUpdate(BaseModel):
 
 class TaskRead(TaskCreate):
     id: int = Field(..., examples=[1])
+    user_id: int = Field(..., examples=[1])
     model_config = ConfigDict(from_attributes=True)

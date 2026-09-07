@@ -14,7 +14,7 @@ from exceptions.external_exceptions import (
 )
 
 
-from routers import auth, external, item_router, task_router
+from routers import auth, external, item_router, task_router, user_router
 from schemas.error import ErrorResponse
 from middleware import RequestLoggingMiddleware
 
@@ -47,10 +47,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 app.include_router(task_router.router)
 app.include_router(item_router.router)
 app.include_router(auth.router)
 app.include_router(external.router)
+app.include_router(user_router.router)
 
 
 @app.get("/", tags=["Health"])

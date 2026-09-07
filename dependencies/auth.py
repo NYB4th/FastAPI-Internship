@@ -37,3 +37,20 @@ def get_current_user(
     if user is None:
         raise credentials_exception
     return user
+
+
+def require_admin(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role != "admin":  # type: ignore
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Operation not permitted",
+        )
+    return current_user
+
+
+def verify_ownership_or_admin(resource_owner_id: int, current_user: User) -> None:
+    if current_user.role != "admin" and resource_owner_id != current_user.id:  # type: ignore
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found",
+        )

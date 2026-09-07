@@ -32,7 +32,7 @@ def create_task(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return task_service.create_task(task_in, db)
+    return task_service.create_task(task_in, db, user_id=(current_user.id))  # type: ignore
 
 
 @router.get(
@@ -49,7 +49,9 @@ def get_all(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return task_service.get_all_tasks(db, limit=limit, offset=offset)
+    return task_service.get_all_tasks(
+        db, current_user=current_user, limit=limit, offset=offset
+    )
 
 
 @router.get(
@@ -66,7 +68,7 @@ def get_by_id(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return task_service.get_task_by_id(task_id, db)
+    return task_service.get_task_by_id(task_id, db, current_user=current_user)
 
 
 @router.put(
@@ -87,7 +89,7 @@ def update_task(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return task_service.update_task(task_id, task_in, db)
+    return task_service.update_task(task_id, task_in, db, current_user=current_user)
 
 
 @router.delete(
@@ -106,4 +108,4 @@ def delete_task(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    task_service.delete_task(task_id, db)
+    task_service.delete_task(task_id, db, current_user=current_user)
