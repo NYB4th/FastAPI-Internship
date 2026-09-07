@@ -1,6 +1,6 @@
-# FastAPI Internship Project - Day 17
+# FastAPI Internship Project - Day 18
 
-A modular, enterprise-structured FastAPI application featuring secure user registration, JWT-based authentication, OAuth2 password flow, dependency-driven route authorization, relational database CRUD operations, database-level query pagination, schema version control using Alembic, centralized environment configuration via `pydantic-settings`, custom request logging middleware with monotonic timing (`time.perf_counter()`) and correlation IDs (`X-Request-ID`), CORS controls, asynchronous external API integration with `httpx`, a fully automated integration testing suite built with Pytest, and comprehensive OpenAPI 3.0 schema metadata with interactive Swagger UI documentation (`/docs`).
+A modular, enterprise-structured FastAPI application featuring secure user registration, JWT-based authentication, OAuth2 password flow, role-based and resource-ownership route authorization, relational database CRUD operations, database-level query pagination, schema version control using Alembic, centralized environment configuration via `pydantic-settings`, custom request logging middleware with monotonic timing (`time.perf_counter()`) and correlation IDs (`X-Request-ID`), CORS controls, asynchronous external API integration with `httpx`, a fully automated integration testing suite built with Pytest, and comprehensive OpenAPI 3.0 schema metadata with interactive Swagger UI documentation (`/docs`).
 
 ---
 
@@ -9,8 +9,8 @@ A modular, enterprise-structured FastAPI application featuring secure user regis
 This project uses a layered architecture to keep HTTP routing, business logic, security utilities, custom middleware, data persistence, and automated testing cleanly separated:
 
 - **Routers (`routers/`)**: Handles incoming HTTP requests, route binding, path validation, and standard response status codes.
-- **Dependencies (`dependencies/`)**: Implements reusable request authorization dependencies (`get_current_user`) using `OAuth2PasswordBearer` to validate incoming Bearer tokens.
-- **Services (`services/`)**: Implements core business logic, user uniqueness checks, credential authentication, task duplicate checks, and pagination.
+- **Dependencies (`dependencies/`)**: Implements reusable request authorization dependencies (`get_current_user` and `require_admin`) using `OAuth2PasswordBearer` to validate incoming Bearer tokens and enforce administrative access where required.
+- **Services (`services/`)**: Implements core business logic, user uniqueness checks, credential authentication, task ownership filtering, task duplicate checks, and pagination.
 - **Utils & Config (`utils/`, `config.py`)**: Manages environment settings via `pydantic-settings` (`Settings`) and security logic (password hashing via `pwdlib` and JWT generation via `PyJWT`).
 - **Middleware & Logging (`middleware.py`, `logger.py`)**: Configures custom request logging middleware (`RequestLoggingMiddleware`) capturing execution duration with `time.perf_counter()` and `X-Request-ID` correlation headers, alongside CORS controls.
 - **Database & Models (`database.py`, `models/`)**: Configures the SQLAlchemy database engine, session factory, and ORM models (`User`, `Task`) representing PostgreSQL tables.
@@ -27,25 +27,25 @@ When a client sends a request (e.g., `POST /tasks`), it passes through these lay
 [Client HTTP Request]
        │
        ▼
- 1. RequestLoggingMiddleware  ──► Assigns X-Request-ID & starts execution timer
+  1. RequestLoggingMiddleware  ──► Assigns X-Request-ID & starts execution timer
        │
        ▼
- 2. CORSMiddleware            ──► Validates request origin against ALLOWED_CORS_ORIGINS
+  2. CORSMiddleware            ──► Validates request origin against ALLOWED_CORS_ORIGINS
        │
        ▼
- 3. Router Layer (routers/)   ──► Matches path /tasks, parses body via Pydantic schema
+  3. Router Layer (routers/)   ──► Matches path /tasks, parses body via Pydantic schema
        │
        ▼
- 4. Dependency (auth.py)      ──► Extracts & validates Bearer token to get User context
+  4. Dependency (auth.py)      ──► Extracts & validates Bearer token and applies role checks when required
        │
        ▼
- 5. Service Layer (services/) ──► Executes business logic & checks database constraints
+  5. Service Layer (services/) ──► Executes business logic & checks database constraints
        │
        ▼
- 6. Database Layer (models/)  ──► SQLAlchemy ORM executes SQL statements via get_db session
+  6. Database Layer (models/)  ──► SQLAlchemy ORM executes SQL statements via get_db session
        │
        ▼
- 7. Response Handler          ──► Formats result into JSON schema & returns HTTP 201 Created
+  7. Response Handler          ──► Formats result into JSON schema & returns HTTP 201 Created
 ```
 
 ---
@@ -70,7 +70,7 @@ fastapi-internship/
 ├── database.py          # SQLAlchemy engine, session factory, and get_db dependency
 ├── dependencies/
 │   ├── __init__.py
-│   └── auth.py          # OAuth2PasswordBearer & get_current_user dependency
+│   └── auth.py          # OAuth2PasswordBearer, get_current_user & require_admin dependencies
 ├── exceptions/
 │   ├── __init__.py
 │   ├── auth_exceptions.py     # Auth domain exceptions (UserAlreadyExistsError)
@@ -81,8 +81,8 @@ fastapi-internship/
 ├── middleware.py        # Custom request logging middleware with time.perf_counter() & X-Request-ID
 ├── models/
 │   ├── __init__.py
-│   ├── task.py          # SQLAlchemy ORM task model
-│   └── user.py          # SQLAlchemy ORM user model
+│   ├── task.py          # SQLAlchemy ORM task model with user ownership relationship
+│   └── user.py          # SQLAlchemy ORM user model with role field
 ├── pytest.ini           # Pytest runner, testpaths, and coverage configuration
 ├── README.md            # Architecture, database setup, OpenAPI specs, request logging, and API specifications
 ├── requirements.txt     # Application dependencies (FastAPI, pydantic-settings, PyJWT, httpx, pytest, pytest-cov, etc.)
@@ -97,23 +97,23 @@ fastapi-internship/
 │   ├── error.py         # Standardized ErrorResponse schema with OpenAPI field descriptions & examples
 │   ├── external.py      # PostResponse schema with userId alias mapping
 │   ├── item.py          # Item validation models
-│   ├── task.py          # Task Pydantic schemas (TaskCreate, TaskUpdate, TaskRead with field metadata & examples)
+│   ├── task.py          # Task Pydantic schemas (TaskCreate, TaskUpdate, TaskRead with user_id, field metadata & examples)
 │   ├── token.py         # Token & TokenData Pydantic schemas with OAuth2 field metadata
-│   └── user.py          # User Pydantic schemas (UserCreate, UserResponse with email validation & field metadata)
+│   └── user.py          # User Pydantic schemas (UserCreate, UserRead, UserUpdateRole with role validation & field metadata)
 ├── services/
 │   ├── __init__.py
 │   ├── external_service.py # Non-blocking HTTP client calls with timeout & exception mapping
 │   ├── item_service.py     # Business logic & in-memory item store
-│   ├── task_service.py     # Database CRUD, pagination, None-safe updates & refactored reusable get_task_by_id checks
+│   ├── task_service.py     # Database CRUD, pagination, ownership filtering, None-safe updates & refactored reusable get_task_by_id checks
 │   └── user_service.py     # User creation, authentication & email uniqueness logic
 ├── tests/               # Automated test suite
 │   ├── __init__.py
 │   ├── conftest.py      # Shared TestClient & SQLite in-memory DB isolation fixtures
-│   ├── test_auth.py     # User registration, duplicate email & token login tests
+│   ├── test_auth.py     # User registration, default role, duplicate email & token login tests
 │   ├── test_config_cors.py # CORS configuration tests
 │   ├── test_external.py # Mocked external API success, timeout & 404 tests
 │   ├── test_health.py   # Root (/) and health check (/health) endpoint tests
-│   └── test_tasks.py    # Complete registration-to-task workflow, pagination, duplicate check & 401 unauthenticated tests
+│   └── test_tasks.py    # Task lifecycle, ownership isolation, RBAC/BOLA, pagination, duplicate check & authorization tests
 └── utils/
     ├── __init__.py
     └── security.py      # Password hashing (pwdlib) & JWT token utilities (PyJWT)
@@ -225,6 +225,8 @@ Run Alembic migrations to build required database tables (`users`, `tasks`):
 alembic upgrade head
 ```
 
+The Day 18 migration includes the `users.role` column with default value `"user"` and the `tasks.user_id` foreign key and constraint used for task ownership.
+
 Verify current migration revision status:
 
 ```cmd
@@ -296,6 +298,8 @@ The repository includes a fully automated test suite configured with Pytest, `Te
 - **FastAPI Dependency Overrides:** `tests/conftest.py` utilizes `app.dependency_overrides[get_db]` to intercept database session injection across all routers, transparently substituting production database sessions with temporary test sessions.
 - **End-to-End Registration-to-Task Workflow:** `test_complete_task_lifecycle` in `tests/test_tasks.py` exercises the complete workflow: registering a user, logging in to obtain an access token, creating a task, retrieving it, updating it, deleting it, and verifying 404 cleanup.
 - **Unauthenticated Protection & Duplicate Handling:** Integration tests explicitly verify that accessing task endpoints without a Bearer token returns `401 Unauthorized`, and creating a task with a duplicate title returns `409 Conflict`.
+- **RBAC & Default Role Coverage:** `tests/test_auth.py::test_register_user_default_role` verifies newly registered users receive `role: "user"`, while `tests/test_tasks.py::test_regular_user_cannot_update_roles` verifies standard users receive `403 Forbidden` for administrative actions.
+- **Task Ownership & BOLA Isolation:** `tests/test_tasks.py` verifies `user_id` assignment, cross-user `GET`/`PUT`/`DELETE` isolation with `404 Not Found`, per-user task-list filtering, same-title support across different users, and admin access across users.
 - **Network Isolation via Mocking:** `tests/test_external.py` uses `unittest.mock.patch` and `AsyncMock` to intercept calls to `get_external_post`. Tests simulate upstream 200 OK responses, 404 Not Found errors, and 504 Timeouts locally without relying on live third-party network availability.
 - **Per-Test Schema Lifecycle:** The `db_session` Pytest fixture executes `Base.metadata.create_all()` before each individual test runs and invokes `Base.metadata.drop_all()` immediately after completion, guaranteeing 100% test independence without leftover data side effects.
 
@@ -358,7 +362,8 @@ All error responses across the API follow a uniform JSON contract defined in `sc
 ```json
 {
   "id": 1,
-  "email": "user@example.com"
+  "email": "user@example.com",
+  "role": "user"
 }
 ```
 
@@ -389,7 +394,7 @@ username=user@example.com&password=securepassword123
 
 ```json
 {
-  "title": "Complete Day 17 Handover",
+  "title": "Complete Day 18 Handover",
   "description": "Document API architecture and setup workflow",
   "priority": 1
 }
@@ -400,19 +405,22 @@ username=user@example.com&password=securepassword123
 ```json
 {
   "id": 1,
-  "title": "Complete Day 17 Handover",
+  "title": "Complete Day 18 Handover",
   "description": "Document API architecture and setup workflow",
   "priority": 1,
   "status": "pending",
-  "is_completed": false
+  "is_completed": false,
+  "user_id": 1
 }
 ```
+
+The `user_id` is assigned automatically from the authenticated user's ID; it is not supplied by the client in the task creation body.
 
 ---
 
 ## Live Technical Demo Script
 
-Follow this 5-step sequence in Swagger UI (`http://127.0.0.1:8000/docs`) to demonstrate the end-to-end user workflow:
+Follow this 5-step sequence in Swagger UI (`http://127.0.0.1:8000/docs`) to demonstrate the end-to-end user workflow, including authenticated task ownership:
 
 1. **Verify System Health (`GET /health`)**
    - **Action:** Click "Try it out" and execute `GET /health`.
@@ -421,7 +429,7 @@ Follow this 5-step sequence in Swagger UI (`http://127.0.0.1:8000/docs`) to demo
 
 2. **Register a User Account (`POST /auth/register`)**
    - **Action:** Submit JSON body with `email` and `password`.
-   - **Expected Output:** Status `201 Created` with the new user `id` and `email`.
+   - **Expected Output:** Status `201 Created` with the new user `id`, `email`, and default `role: "user"`.
    - **Talking Point:** Shows account creation where passwords are encrypted using Bcrypt before saving to PostgreSQL.
 
 3. **Authenticate & Obtain Token (`POST /auth/token`)**
@@ -435,8 +443,8 @@ Follow this 5-step sequence in Swagger UI (`http://127.0.0.1:8000/docs`) to demo
 
 5. **Create Protected Task (`POST /tasks`)**
    - **Action:** Submit task JSON body containing `title`, `description`, and `priority`.
-   - **Expected Output:** Status `201 Created` with the created task details.
-   - **Talking Point:** Demonstrates protected route authorization where the `get_current_user` dependency decodes the token and permits task creation.
+   - **Expected Output:** Status `201 Created` with the created task details including `user_id`.
+   - **Talking Point:** Demonstrates protected route authorization where the `get_current_user` dependency decodes the token, and the authenticated user's ID is assigned as the task owner.
 
 ---
 
@@ -444,7 +452,7 @@ Follow this 5-step sequence in Swagger UI (`http://127.0.0.1:8000/docs`) to demo
 
 ### 1. Automated Verification (CLI)
 
-Run `pytest -v --cov` in your terminal. Confirm that all integration tests pass covering root health, user registration, token login, complete task CRUD lifecycle, duplicate title conflict handling (409), pagination, unauthenticated route protection (401), input validation bounds (422), and mocked external service integration (200 OK, 404 Not Found, 504 Timeout).
+Run `pytest -v --cov` in your terminal. Confirm that all integration tests pass covering root health, user registration, default user role assignment, token login, complete task CRUD lifecycle, task ownership isolation, RBAC role restrictions, BOLA-safe `404 Not Found` behavior, duplicate title conflict handling (409), pagination, unauthenticated route protection (401), input validation bounds (422), and mocked external service integration (200 OK, 404 Not Found, 504 Timeout).
 
 ### 2. Manual Verification (Swagger UI)
 
@@ -453,29 +461,35 @@ Run `pytest -v --cov` in your terminal. Confirm that all integration tests pass 
    - Confirm title, description, contact details, and version reflect application metadata.
    - Verify category descriptions under `Health`, `Authentication`, `Tasks`, `Items`, and `External Services`.
    - Confirm no duplicate endpoint listings or duplicate tag categories exist.
-3. **Verify Protected Task Authorization (`POST /tasks`, `GET /tasks`):**
+3. **Verify Protected Task Authorization & Ownership (`POST /tasks`, `GET /tasks`, `GET/PUT/DELETE /tasks/{task_id}`):**
    - Execute `GET /tasks` without authorization -> Confirm `401 Unauthorized`.
-   - Register a user (`POST /auth/register`), obtain token via `POST /auth/token`, click **Authorize**, and submit `POST /tasks`. Confirm `201 Created`.
-   - Send duplicate `POST /tasks` with identical title -> Confirm `409 Conflict`.
+   - Register a user (`POST /auth/register`), obtain token via `POST /auth/token`, click **Authorize**, and submit `POST /tasks`. Confirm `201 Created` and a response containing the authenticated user's `user_id`.
+   - Authenticate as another regular user and attempt to access, update, or delete the first user's task -> Confirm `404 Not Found`.
+   - Execute `GET /tasks` as each regular user -> Confirm each user receives only their own tasks.
+   - Authenticate as an admin -> Confirm admins can retrieve and manage tasks across users.
+4. **Verify Administrative Role Management (`PATCH /users/{user_id}/role`):**
+   - As a regular user, attempt the role-update endpoint -> Confirm `403 Forbidden`.
+   - As an admin, update a user's role and confirm the administrative action succeeds.
 
 ---
 
 ## API Endpoints
 
-| Method   | Endpoint                    | Tag Category      | Security           | Success          | Error Codes                | Description                                                |
-| :------- | :-------------------------- | :---------------- | :----------------- | :--------------- | :------------------------- | :--------------------------------------------------------- |
-| `GET`    | `/`                         | Health            | Public             | `200 OK`         | —                          | Root welcome message payload                               |
-| `GET`    | `/health`                   | Health            | Public             | `200 OK`         | —                          | System availability and health check                       |
-| `POST`   | `/auth/register`            | Authentication    | Public             | `201 Created`    | `409`, `422`               | Register user account with password hashing                |
-| `POST`   | `/auth/token`               | Authentication    | Public (Form Data) | `200 OK`         | `401`, `422`               | Authenticate credentials and issue OAuth2 Bearer JWT token |
-| `POST`   | `/tasks`                    | Tasks             | **Bearer Token**   | `201 Created`    | `401`, `409`, `422`        | Create a new task                                          |
-| `GET`    | `/tasks`                    | Tasks             | **Bearer Token**   | `200 OK`         | `401`, `422`               | Retrieve a paginated list of tasks                         |
-| `GET`    | `/tasks/{task_id}`          | Tasks             | **Bearer Token**   | `200 OK`         | `401`, `404`               | Retrieve details of a single task by ID                    |
-| `PUT`    | `/tasks/{task_id}`          | Tasks             | **Bearer Token**   | `200 OK`         | `401`, `404`, `409`, `422` | Update details or completion status of an existing task    |
-| `DELETE` | `/tasks/{task_id}`          | Tasks             | **Bearer Token**   | `204 No Content` | `401`, `404`               | Permanently delete a task by ID                            |
-| `GET`    | `/items`                    | Items             | Public             | `200 OK`         | —                          | Retrieve list of items                                     |
-| `GET`    | `/items/{item_id}`          | Items             | Public             | `200 OK`         | `404`                      | Retrieve single item by ID                                 |
-| `GET`    | `/external/posts/{post_id}` | External Services | Public             | `200 OK`         | `404`, `502`, `504`, `422` | Asynchronously fetch external post with 5s timeout         |
+| Method   | Endpoint                    | Tag Category      | Security               | Success          | Error Codes                | Description                                                                |
+| :------- | :-------------------------- | :---------------- | :--------------------- | :--------------- | :------------------------- | :------------------------------------------------------------------------- |
+| `GET`    | `/`                         | Health            | Public                 | `200 OK`         | —                          | Root welcome message payload                                               |
+| `GET`    | `/health`                   | Health            | Public                 | `200 OK`         | —                          | System availability and health check                                       |
+| `POST`   | `/auth/register`            | Authentication    | Public                 | `201 Created`    | `409`, `422`               | Register user account with password hashing                                |
+| `POST`   | `/auth/token`               | Authentication    | Public (Form Data)     | `200 OK`         | `401`, `422`               | Authenticate credentials and issue OAuth2 Bearer JWT token                 |
+| `PATCH`  | `/users/{user_id}/role`     | Authentication    | **Admin Bearer Token** | —                | `401`, `403`, `404`, `422` | Change a user's role; restricted to admins                                 |
+| `POST`   | `/tasks`                    | Tasks             | **Bearer Token**       | `201 Created`    | `401`, `409`, `422`        | Create a new task and assign it to the authenticated user                  |
+| `GET`    | `/tasks`                    | Tasks             | **Bearer Token**       | `200 OK`         | `401`, `422`               | Retrieve paginated tasks; regular users see only their own, admins see all |
+| `GET`    | `/tasks/{task_id}`          | Tasks             | **Bearer Token**       | `200 OK`         | `401`, `404`               | Retrieve a task by ID subject to ownership; admins may access all tasks    |
+| `PUT`    | `/tasks/{task_id}`          | Tasks             | **Bearer Token**       | `200 OK`         | `401`, `404`, `409`, `422` | Update an owned task; admins may update tasks across users                 |
+| `DELETE` | `/tasks/{task_id}`          | Tasks             | **Bearer Token**       | `204 No Content` | `401`, `404`               | Delete an owned task; admins may delete tasks across users                 |
+| `GET`    | `/items`                    | Items             | Public                 | `200 OK`         | —                          | Retrieve list of items                                                     |
+| `GET`    | `/items/{item_id}`          | Items             | Public                 | `200 OK`         | `404`                      | Retrieve single item by ID                                                 |
+| `GET`    | `/external/posts/{post_id}` | External Services | Public                 | `200 OK`         | `404`, `502`, `504`, `422` | Asynchronously fetch external post with 5s timeout                         |
 
 ---
 
@@ -489,7 +503,7 @@ Run `pytest -v --cov` in your terminal. Confirm that all integration tests pass 
 
 ### Future Enhancements & Practice
 
-- [ ] **Give tasks a proper purpose & user isolation:** Add a `user_id` foreign key to the `Task` model so users only see and manage their own tasks instead of sharing tasks globally. Add more realistic fields such as due dates and priority levels.
+- [ ] **Give tasks a proper purpose & user isolation:** Task ownership and user isolation are now implemented through the `user_id` foreign key and ownership filtering. Add more realistic fields such as due dates and priority levels.
 
 - [ ] **Attempt frontend integration:** Practice backend integration with an existing frontend application instead of relying only on Swagger UI for testing the API.
 
@@ -501,10 +515,10 @@ Run `pytest -v --cov` in your terminal. Confirm that all integration tests pass 
 
 - [x] Verified the full registration-to-authenticated-task workflow through the automated integration test suite.
 - [x] Verified database isolation using the in-memory SQLite test database and FastAPI dependency overrides.
-- [x] Verified authentication, protected task routes, pagination, duplicate title conflict handling (409), and unauthenticated protection (401).
+- [x] Verified authentication, protected task routes, pagination, duplicate title conflict handling (409), unauthenticated protection (401), RBAC, task ownership isolation, and BOLA-safe 404 responses.
 - [x] Verified mocked external service integration covering success, 404 Not Found, and 504 Timeout scenarios.
 - [x] Verified OpenAPI metadata, Swagger UI documentation, request logging, correlation IDs, and CORS configuration.
-- [x] Updated `README.md` to reflect the current Day 17 architecture, setup workflow, API examples, verification workflow, and project status.
+- [x] Updated `README.md` to reflect the current Day 18 architecture, setup workflow, API examples, RBAC/task-ownership verification workflow, and project status.
 
 ---
 
@@ -524,4 +538,4 @@ Gained practical experience with FastAPI's `app.dependency_overrides` feature. I
 
 ### 4. Actionable Future Improvement
 
-Add explicit user ownership to tasks by defining a `user_id` foreign key on the `Task` ORM model. Currently, any authenticated user can view or modify tasks created by other users. Adding `user_id` filtering will enforce true multi-tenant data isolation per user account.
+The Day 18 implementation now defines explicit task ownership through a `user_id` foreign key on the `Task` ORM model and applies ownership filtering for regular users, with admin overrides. Future work can focus on the remaining items in the checklist, such as frontend integration and additional industry-standard protections.
