@@ -1,3 +1,6 @@
+from unittest.mock import patch
+
+
 def get_auth_header(client, email="taskuser@example.com", password="password123"):
     client.post("/auth/register", json={"email": email, "password": password})
     login_res = client.post(
@@ -227,3 +230,65 @@ def test_admin_can_update_user_role_and_manage_tasks(client, db_session):
     )
     assert role_res.status_code == 200
     assert role_res.json()["role"] == "admin"
+
+
+def test_create_task_triggers_background_audit_log(client):
+    headers = get_auth_header(client, email="audit_trigger@example.com")
+    payload = {"title": "Task with Background Audit", "priority": 1}
+
+    with patch("routers.task_router.log_task_event") as mock_audit:
+        response = client.post("/tasks", json=payload, headers=headers)
+        assert response.status_code == 201
+        created_task = response.json()
+
+        mock_audit.assert_called_once_with(
+            task_id=created_task["id"],
+            user_id=created_task["user_id"],
+            event_type="TASK_CREATED",
+        )
+
+
+def test_failed_task_creation_does_not_schedule_background_audit(client):
+    headers = get_auth_header(client, email="audit_fail@example.com")
+
+    with patch("routers.task_router.log_task_event") as mock_audit:
+        # Case 1: Validation error (missing required title)
+        invalid_res = client.post(
+            "/tasks", json={"description": "No title", "priority": 1}, headers=headers
+        )
+        assert invalid_res.status_code == 422
+        mock_audit.assert_not_called()
+
+        # Case 2: Successful first creation
+        valid_payload = {"title": "Unique Audit Task", "priority": 2}
+        first_res = client.post("/tasks", json=valid_payload, headers=headers)
+        assert first_res.status_code == 201
+        assert mock_audit.call_count == 1
+
+        # Case 3: Duplicate title conflict (409 Conflict)
+        mock_audit.reset_mock()
+        dup_res = client.post("/tasks", json=valid_payload, headers=headers)
+        assert dup_res.status_code == 409
+        mock_audit.assert_not_called()
+
+
+def test_background_audit_failure_does_not_affect_task_creation(client):
+    headers = get_auth_header(client, email="audit_resilience@example.com")
+    payload = {"title": "Resilient Audit Task", "priority": 3}
+
+    def fail_on_audit(msg, *args, **kwargs):
+        if "[AUDIT]" in str(msg):
+            raise RuntimeError("Logging stream failed")
+
+    with patch("services.audit.logger.info", side_effect=fail_on_audit), patch(
+        "services.audit.logger.error"
+    ) as mock_err:
+        response = client.post("/tasks", json=payload, headers=headers)
+
+        # The client response must still succeed with 201 Created
+        assert response.status_code == 201
+        assert response.json()["title"] == payload["title"]
+
+        # The background exception must be safely caught and logged
+        mock_err.assert_called_once()
+        assert "Logging stream failed" in mock_err.call_args[0][0]

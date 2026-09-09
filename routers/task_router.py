@@ -1,5 +1,4 @@
-from typing import cast
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -8,6 +7,7 @@ from models.user import User
 from schemas.error import ErrorResponse
 from schemas.task import TaskCreate, TaskRead, TaskUpdate
 from services import task_service
+from services.audit import log_task_event
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
@@ -29,10 +29,18 @@ router = APIRouter(prefix="/tasks", tags=["Tasks"])
 )
 def create_task(
     task_in: TaskCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return task_service.create_task(task_in, db, user_id=(current_user.id))  # type: ignore
+    task = task_service.create_task(task_in, db, user_id=(current_user.id))  # type: ignore
+    background_tasks.add_task(
+        log_task_event,
+        task_id=task.id,
+        user_id=task.user_id,
+        event_type="TASK_CREATED",
+    )
+    return task
 
 
 @router.get(
