@@ -1,4 +1,4 @@
-# FastAPI Internship Project - Day 18
+# FastAPI Internship Project - Day 19
 
 A modular, enterprise-structured FastAPI application featuring secure user registration, JWT-based authentication, OAuth2 password flow, role-based and resource-ownership route authorization, relational database CRUD operations, database-level query pagination, schema version control using Alembic, centralized environment configuration via `pydantic-settings`, custom request logging middleware with monotonic timing (`time.perf_counter()`) and correlation IDs (`X-Request-ID`), CORS controls, asynchronous external API integration with `httpx`, a fully automated integration testing suite built with Pytest, and comprehensive OpenAPI 3.0 schema metadata with interactive Swagger UI documentation (`/docs`).
 
@@ -289,6 +289,76 @@ uvicorn main:app --reload
 
 ---
 
+## Background Tasks & Reliability Architecture
+
+### How Background Tasks Work in This Project
+
+FastAPI's built-in `BackgroundTasks` system runs a callable **after** the HTTP response has already been sent to the client. In this project, every successful `POST /tasks` call schedules `log_task_event` from `services/audit.py` as a background job:
+
+```python
+# routers/task_router.py (simplified)
+@router.post("/tasks", status_code=201)
+def create_task(
+    payload: TaskCreate,
+    background_tasks: BackgroundTasks,   # injected by FastAPI
+    ...
+):
+    task = task_service.create_task(...)
+    db.commit()
+    background_tasks.add_task(log_task_event, task.id, current_user.id, "TASK_CREATED")
+    return task
+```
+
+**Execution order:**
+
+1. Task is written to the database and committed.
+2. `201 Created` response is returned to the client immediately.
+3. `log_task_event(...)` runs inside the same worker process — no extra threads, no external infrastructure.
+
+The audit function wraps its body in a `try/except` so that any logging failure is caught and logged as an error, and **never propagates back to the HTTP response layer**:
+
+```python
+# services/audit.py
+def log_task_event(task_id: int, user_id: int, event_type: str) -> None:
+    try:
+        logger.info(f"[AUDIT] event={event_type} task_id={task_id} user_id={user_id}")
+    except Exception as exc:
+        logger.error(f"[AUDIT] Background task failed: {exc}")
+```
+
+### Why In-Process `BackgroundTasks` Is Used Here
+
+This project uses `BackgroundTasks` because it satisfies the requirements with **zero external infrastructure**:
+
+- No Redis, RabbitMQ, or separate worker processes needed.
+- No additional dependencies in `requirements.txt`.
+- Tasks complete within the same request lifecycle — simple to reason about and test deterministically (Starlette's `TestClient` executes background tasks synchronously before `.post()` returns).
+
+This is the correct choice for **development environments**, **low-traffic APIs**, and **non-critical side effects** such as structured audit logging.
+
+### When a Production System Requires a Durable Queue
+
+In-process `BackgroundTasks` have a fundamental limitation: **if the worker process crashes or is restarted while a background task is mid-execution, that task is silently lost.** There is no persistence, no retry mechanism, and no visibility.
+
+Upgrade to a durable queue (such as **Celery + Redis** or **RQ + Redis**) when any of the following apply:
+
+| Scenario                                       | In-Process `BackgroundTasks` |        Celery / RQ + Redis         |
+| :--------------------------------------------- | :--------------------------: | :--------------------------------: |
+| Worker crash drops the task                    |    ❌ Task lost silently     |      ✅ Task survives restart      |
+| Automatic retry on failure                     |       ❌ Not supported       |  ✅ Configurable retry + backoff   |
+| Sending transactional emails                   |           ❌ Risky           |        ✅ Reliable delivery        |
+| Charging payment or calling billing APIs       |         ❌ Not safe          |     ✅ Idempotent + retryable      |
+| High-volume async workload (thousands/sec)     |   ❌ Blocks the web worker   |      ✅ Isolated worker pool       |
+| Visibility into queued / failed jobs           |           ❌ None            |      ✅ Flower / RQ Dashboard      |
+| Zero infrastructure requirement                |      ✅ No Redis needed      | ❌ Requires Redis + worker process |
+| Simple structured audit logging (this project) |        ✅ Sufficient         |            ⚠️ Overkill             |
+
+### Summary
+
+The in-process `BackgroundTasks` approach is intentional and appropriate for this project's scope. The audit log is a **non-critical side effect** — a failure to log must never fail an API response, and losing an occasional log entry under a crash is acceptable. If this project were extended to trigger emails, payment processing, or any business-critical asynchronous operation, the `log_task_event` call should be replaced with a Celery task dispatched to a Redis-backed durable queue.
+
+---
+
 ## Automated Testing & Integration Workflow Isolation
 
 The repository includes a fully automated test suite configured with Pytest, `TestClient`, and code coverage reporting (`pytest-cov`).
@@ -520,6 +590,9 @@ Run `pytest -v --cov` in your terminal. Confirm that all integration tests pass 
 - [x] Verified mocked external service integration covering success, 404 Not Found, and 504 Timeout scenarios.
 - [x] Verified OpenAPI metadata, Swagger UI documentation, request logging, correlation IDs, and CORS configuration.
 - [x] Updated `README.md` to reflect the current Day 18 architecture, setup workflow, API examples, RBAC/task-ownership verification workflow, and project status.
+- [x] Implemented `services/audit.py` `log_task_event` with resilient `try/except` and wired it to `POST /tasks` via FastAPI `BackgroundTasks` post-commit.
+- [x] Verified background task integration with three dedicated tests: trigger on success, no-trigger on validation failure, API resilience on background worker exception.
+- [x] Documented `BackgroundTasks` vs durable queue (Celery/RQ) trade-offs in `README.md` with an execution model explanation and scenario comparison table.
 
 ---
 
