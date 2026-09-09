@@ -22,6 +22,11 @@ class TaskCreate(BaseModel):
     status: Literal["pending", "in_progress", "completed"] = Field(
         "pending", examples=["pending"]
     )
+    is_completed: bool = Field(
+        default=False,
+        description="Whether the task is completed",
+        examples=[False],
+    )
 
 
 class TaskUpdate(BaseModel):
@@ -41,6 +46,11 @@ class TaskUpdate(BaseModel):
     )
     status: Literal["pending", "in_progress", "completed"] | None = Field(
         None, examples=["in_progress"]
+    )
+    is_completed: bool | None = Field(
+        None,
+        description="Whether the task is completed",
+        examples=[True],
     )
 
 

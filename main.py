@@ -33,6 +33,10 @@ app = FastAPI(
             "description": "User registration and session management.",
         },
         {"name": "Tasks", "description": "CRUD operations for user tasks."},
+        {
+            "name": "Users",
+            "description": "User management and administrative role operations.",
+        },
         {"name": "Items", "description": "Item management operations."},
         {"name": "External Services", "description": "Third-party API integrations."},
     ],
@@ -84,7 +88,7 @@ async def task_already_exists_handler(request: Request, exc: TaskAlreadyExistsEr
 
 
 @app.exception_handler(RequestValidationError)
-async def valtidation_exception_handler(request: Request, exc: RequestValidationError):
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
     error_payload = ErrorResponse(
         error_code="INVALIDATION_ERROR",
         message="Invalid request body or parameters.",
@@ -97,7 +101,7 @@ async def valtidation_exception_handler(request: Request, exc: RequestValidation
 
 
 @app.exception_handler(UserAlreadyExistsError)
-async def user_alreadys_exists_handler(request: Request, exc: UserAlreadyExistsError):
+async def user_already_exists_handler(request: Request, exc: UserAlreadyExistsError):
     error_payload = ErrorResponse(error_code="USER_ALREADY_EXISTS", message=exc.message)
     return JSONResponse(
         status_code=status.HTTP_409_CONFLICT, content=error_payload.model_dump()

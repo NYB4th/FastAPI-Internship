@@ -6,15 +6,15 @@ from config import settings
 from datetime import datetime, timedelta, timezone
 import jwt
 
-passoword_hash = PasswordHash((BcryptHasher(),))
+password_hash = PasswordHash((BcryptHasher(),))
 
 
 def hash_password(password: str) -> str:
-    return passoword_hash.hash(password)
+    return password_hash.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return passoword_hash.verify(plain_password, hashed_password)
+    return password_hash.verify(plain_password, hashed_password)
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:

@@ -25,7 +25,7 @@ def db_session_fixture():
     try:
         yield db
     finally:
-        db.close_all
+        db.close()
         Base.metadata.drop_all(bind=engine)
 
 
