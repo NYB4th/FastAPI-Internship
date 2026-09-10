@@ -7,6 +7,8 @@ from sqlalchemy.pool import StaticPool
 from database import Base, get_db
 from main import app
 
+from services.cache_service import redis_client
+
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 
 engine = create_engine(
@@ -41,3 +43,17 @@ def client_fixture(db_session):
     with TestClient(app) as client:
         yield client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def clean_redis():
+    """Flushes Redis before and after each test for total test isolation."""
+    try:
+        redis_client.flushdb()
+    except Exception:
+        pass
+    yield
+    try:
+        redis_client.flushdb()
+    except Exception:
+        pass

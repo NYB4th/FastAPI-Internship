@@ -31,3 +31,19 @@ def test_login_for_access_token(client):
     token_payload = response.json()
     assert "access_token" in token_payload
     assert token_payload["token_type"] == "bearer"
+
+
+def test_login_rate_limiting(client):
+    email = "ratelimit_user@example.com"
+    password = "password123"
+    client.post("/auth/register", json={"email": email, "password": password})
+
+    for _ in range(5):
+        res = client.post("/auth/token", data={"username": email, "password": password})
+        assert res.status_code == 200
+
+    blocked_res = client.post(
+        "/auth/token", data={"username": email, "password": password}
+    )
+    assert blocked_res.status_code == 429
+    assert "Too many login attempts" in blocked_res.json()["detail"]

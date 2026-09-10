@@ -36,8 +36,8 @@ def create_task(
     task = task_service.create_task(task_in, db, user_id=(current_user.id))  # type: ignore
     background_tasks.add_task(
         log_task_event,
-        task_id=task.id,
-        user_id=task.user_id,
+        task_id=task.id,  # pyright: ignore[reportArgumentType]
+        user_id=task.user_id,  # pyright: ignore[reportArgumentType]
         event_type="TASK_CREATED",
     )
     return task

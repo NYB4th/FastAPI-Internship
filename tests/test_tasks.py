@@ -1,5 +1,9 @@
 from unittest.mock import patch
 
+import redis
+from services.cache_service import redis_client
+from typing import cast
+
 
 def get_auth_header(client, email="taskuser@example.com", password="password123"):
     client.post("/auth/register", json={"email": email, "password": password})
@@ -292,3 +296,81 @@ def test_background_audit_failure_does_not_affect_task_creation(client):
         # The background exception must be safely caught and logged
         mock_err.assert_called_once()
         assert "Logging stream failed" in mock_err.call_args[0][0]
+
+
+def test_task_list_cache_miss_then_hit(client):
+    headers = get_auth_header(client, email="cache_user@example.com")
+    client.post(
+        "/tasks", json={"title": "Cache Task 1", "priority": 1}, headers=headers
+    )
+
+    res1 = client.get("/tasks", headers=headers)
+    assert res1.status_code == 200
+    assert len(res1.json()) == 1
+
+    cached_keys = cast(list[str], redis_client.keys("tasks:user:*"))
+    assert len(cached_keys) == 1
+
+    with patch("sqlalchemy.orm.Query.all") as mock_db_query:
+        res2 = client.get("/tasks", headers=headers)
+        assert res2.status_code == 200
+        assert res2.json() == res1.json()
+        mock_db_query.assert_not_called()
+
+
+def test_task_list_cache_invalidation_on_mutations(client):
+    headers = get_auth_header(client, email="invalidate_user@example.com")
+    create_res = client.post(
+        "/tasks", json={"title": "Original Task", "priority": 1}, headers=headers
+    )
+    task_id = create_res.json()["id"]
+
+    def get_user_keys() -> list[str]:
+        return cast(list[str], redis_client.keys("tasks:user:*"))
+
+    client.get("/tasks", headers=headers)
+    assert len(get_user_keys()) == 1
+
+    client.put(f"/tasks/{task_id}", json={"title": "Updated Task"}, headers=headers)
+    assert len(get_user_keys()) == 0
+
+    client.get("/tasks", headers=headers)
+    assert len(get_user_keys()) == 1
+
+    client.post("/tasks", json={"title": "Second Task", "priority": 2}, headers=headers)
+    assert len(get_user_keys()) == 0
+
+    client.get("/tasks", headers=headers)
+    assert len(get_user_keys()) == 1
+
+    client.delete(f"/tasks/{task_id}", headers=headers)
+    assert len(get_user_keys()) == 0
+
+
+def test_task_list_cache_ttl(client):
+    headers = get_auth_header(client, email="ttl_user@example.com")
+    client.post("/tasks", json={"title": "TTL Task", "priority": 1}, headers=headers)
+
+    client.get("/tasks", headers=headers)
+    keys = cast(list[str], redis_client.keys("tasks:user:*"))
+    assert len(keys) == 1
+
+    ttl = cast(int, redis_client.ttl(keys[0]))
+    assert 0 < ttl <= 60
+
+
+def test_task_list_graceful_fallback_on_redis_error(client):
+    headers = get_auth_header(client, email="fallback_user@example.com")
+    client.post(
+        "/tasks", json={"title": "Fallback Task", "priority": 1}, headers=headers
+    )
+
+    with patch(
+        "services.cache_service.redis_client.get",
+        side_effect=redis.RedisError("Redis down"),
+    ):
+        response = client.get("/tasks", headers=headers)
+
+        assert response.status_code == 200
+        assert len(response.json()) == 1
+        assert response.json()[0]["title"] == "Fallback Task"
