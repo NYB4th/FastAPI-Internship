@@ -205,7 +205,6 @@ def test_regular_user_cannot_update_roles(client):
 
 
 def test_admin_can_update_user_role_and_manage_tasks(client, db_session):
-
     user_headers = get_auth_header(client, email="standard_user@example.com")
     admin_headers, admin_id = create_admin_user(
         client,
@@ -284,9 +283,10 @@ def test_background_audit_failure_does_not_affect_task_creation(client):
         if "[AUDIT]" in str(msg):
             raise RuntimeError("Logging stream failed")
 
-    with patch("services.audit.logger.info", side_effect=fail_on_audit), patch(
-        "services.audit.logger.error"
-    ) as mock_err:
+    with (
+        patch("services.audit.logger.info", side_effect=fail_on_audit),
+        patch("services.audit.logger.error") as mock_err,
+    ):
         response = client.post("/tasks", json=payload, headers=headers)
 
         # The client response must still succeed with 201 Created

@@ -10,6 +10,7 @@ from dependencies.auth import verify_ownership_or_admin
 from models.user import User
 
 from services.cache_service import get_cache, set_cache, delete_cache_pattern
+from typing import cast
 
 
 def invalidate_task_caches(user_id: int) -> None:
@@ -22,8 +23,10 @@ def get_task_by_id(task_id: int, db: Session, current_user: User):
     if not task:
         raise TaskNotFoundError(task_id)
 
+    user_id = cast(int, task.user_id)
     verify_ownership_or_admin(
-        task.user_id, current_user  # pyright: ignore[reportArgumentType]
+        user_id,
+        current_user,
     )
     return task
 
@@ -58,7 +61,6 @@ def update_task(task_id: int, task_in: TaskUpdate, db: Session, current_user: Us
 
 
 def get_all_tasks(db: Session, current_user: User, limit: int = 10, offset: int = 0):
-
     if current_user.role == "admin":  # pyright: ignore[reportGeneralTypeIssues]
         cache_key = f"tasks:admin:limit:{limit}:offset:{offset}"
     else:

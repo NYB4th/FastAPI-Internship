@@ -1,4 +1,4 @@
-﻿from logger import logger
+from logger import logger
 
 
 def log_task_event(task_id: int, user_id: int, event_type: str) -> None:
