@@ -376,6 +376,6 @@ def test_task_list_graceful_fallback_on_redis_error(client):
         assert response.json()[0]["title"] == "Fallback Task"
 
 
-def test_intentional_ci_failure():
-    """Temporary test to verify GitHub Actions halts on failure."""
-    assert False, "Verifying that GitHub Actions catches failing tests"
+# def test_intentional_ci_failure():
+#    """Temporary test to verify GitHub Actions halts on failure."""
+#   assert False, "Verifying that GitHub Actions catches failing tests"
